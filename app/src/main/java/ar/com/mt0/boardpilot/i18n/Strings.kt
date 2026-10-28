@@ -145,6 +145,12 @@ interface AppStrings {
     val eggCharging: String
     val eggAftermath: String
     val eggPsu: String
+    val eggResistorHeader: String
+    val eggResistorDuring: String
+    val eggResistorAfter: String
+    val eggDiodeHeader: String
+    val eggDiodeDuring: String
+    val eggDiodeAfter: String
     fun gateWarning(gate: SafetyGate): String
     fun stageName(stage: Stage): String
     fun kindName(kind: MeasurementKind): String
@@ -279,6 +285,12 @@ object EsStrings : AppStrings {
     override val eggCharging = "24 V en un capacitor de 16 V..."
     override val eggAftermath = "Eso era C12. Hay que medir antes de energizar."
     override val eggPsu = "FUENTE"
+    override val eggResistorHeader = "SOBREPOTENCIA // R7 FUERA DE SERVICIO"
+    override val eggResistorDuring = "40 W en una resistencia de 1/4 W..."
+    override val eggResistorAfter = "Eso era R7. Calculá la potencia antes de energizar."
+    override val eggDiodeHeader = "SOBRECORRIENTE // D3 FUERA DE SERVICIO"
+    override val eggDiodeDuring = "2 A por un 1N4148 de 300 mA..."
+    override val eggDiodeAfter = "Eso era D3. Quedó en corto: medilo en modo diodo."
 
     override fun gateWarning(gate: SafetyGate): String = when (gate) {
         SafetyGate.DE_ENERGIZED ->
@@ -434,6 +446,12 @@ object EnStrings : AppStrings {
     override val eggCharging = "24 V into a 16 V capacitor..."
     override val eggAftermath = "That was C12. Always measure before powering up."
     override val eggPsu = "PSU"
+    override val eggResistorHeader = "OVERPOWER // R7 OUT OF SERVICE"
+    override val eggResistorDuring = "40 W into a 1/4 W resistor..."
+    override val eggResistorAfter = "That was R7. Check the power rating before powering up."
+    override val eggDiodeHeader = "OVERCURRENT // D3 OUT OF SERVICE"
+    override val eggDiodeDuring = "2 A through a 300 mA 1N4148..."
+    override val eggDiodeAfter = "That was D3. It failed short: check it in diode mode."
 
     override fun gateWarning(gate: SafetyGate): String = when (gate) {
         SafetyGate.DE_ENERGIZED ->

@@ -37,9 +37,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -76,12 +77,11 @@ import kotlin.random.Random
 /**
  * Huevo de pascua de la familia MT: cada app anima el objeto de su dominio
  * sobre fondo negro con starfield y firma "h4ck3.ar" en latido lub-dub.
- * Aca: C12, un electrolitico de 16 V en una fuente de banco a 24 V. Falla
- * como en el banco de verdad: la fuga crece, la fuente entra en limite de
- * corriente, la tapa se abomba, el electrolito hierve (siseo y crepitar) y
- * revienta el venteo con vapor y papel/aluminio del bobinado; en el ciclo
- * siguiente salta el tapon de goma y la lata sale volando como un cohete.
- * Sonido sintetizado en el momento (EggSoundtrack) y vibracion al reventar.
+ * Aca, una fuente de banco (24 V, limite 2 A) mata un componente distinto en
+ * cada escena, como en un banco de verdad: C12 (16 V) revienta el venteo,
+ * R7 (10 ohm, 1/4 W) se carboniza, prende fuego y se parte, C12 sale volando
+ * como un cohete, y D3 (1N4148 de vidrio) se pone incandescente y se raja.
+ * Sonido sintetizado en el momento (EggSoundtrack) y vibracion en cada falla.
  * Se abre con 6 toques sobre el titulo "BoardPilot"; tocar la pantalla cierra.
  */
 
@@ -104,8 +104,10 @@ fun EasterEggScreen(strings: AppStrings, onExit: () -> Unit) {
     val audio = remember { arrayOfNulls<EggAudio>(1) }
     var timeSec by remember { mutableFloatStateOf(0f) }
 
+    // Como un video: la pantalla no se apaga mientras corre el loop de 24 s.
     // El sonido se pausa con la app en segundo plano y se libera al salir.
     DisposableEffect(lifecycleOwner) {
+        view.keepScreenOn = true
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> audio[0]?.pause()
@@ -118,6 +120,7 @@ fun EasterEggScreen(strings: AppStrings, onExit: () -> Unit) {
             lifecycleOwner.lifecycle.removeObserver(observer)
             audio[0]?.release()
             audio[0] = null
+            view.keepScreenOn = false
         }
     }
     LaunchedEffect(Unit) {
@@ -140,10 +143,16 @@ fun EasterEggScreen(strings: AppStrings, onExit: () -> Unit) {
     }
 
     val seeds = remember { EggSeeds() }
-    val measurer = rememberTextMeasurer(cacheSize = 24)
-    val loopT = timeSec % EggTimeline.LOOP
-    val rocket = loopT >= EggTimeline.CYCLE
-    val t = if (rocket) loopT - EggTimeline.CYCLE else loopT
+    val measurer = rememberTextMeasurer(cacheSize = 32)
+    val (scene, t) = eggSceneAt(timeSec % EggTimeline.LOOP)
+    val (header, during, after) = when (scene) {
+        EggScene.VENT, EggScene.ROCKET ->
+            Triple(strings.eggHeader, strings.eggCharging, strings.eggAftermath)
+        EggScene.RESISTOR ->
+            Triple(strings.eggResistorHeader, strings.eggResistorDuring, strings.eggResistorAfter)
+        EggScene.DIODE ->
+            Triple(strings.eggDiodeHeader, strings.eggDiodeDuring, strings.eggDiodeAfter)
+    }
 
     val beat = (timeSec % EggTimeline.BEAT) / EggTimeline.BEAT
     val lub = exp(-((beat - 0.10f) * (beat - 0.10f)) / 0.004f)
@@ -156,21 +165,21 @@ fun EasterEggScreen(strings: AppStrings, onExit: () -> Unit) {
             .background(Color(0xFF050203))
             .clickable { onExit() },
     ) {
-        Canvas(Modifier.fillMaxSize()) { drawEggScene(t, rocket, timeSec, seeds, measurer) }
+        Canvas(Modifier.fillMaxSize()) { drawEggScene(scene, t, timeSec, seeds, measurer) }
         Column(
             Modifier.align(Alignment.TopCenter).padding(top = 56.dp, start = 20.dp, end = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(strings.eggHeader, color = Color(0xFFFFB300),
+            Text(header, color = Color(0xFFFFB300),
                 fontFamily = FontFamily.Monospace, fontSize = 14.sp,
                 fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Text(
-                if (t < EggTimeline.POP) strings.eggCharging else strings.eggAftermath,
+                if (t < EggTimeline.POP) during else after,
                 color = Color(0xFFF5E9E2), fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp, textAlign = TextAlign.Center,
             )
-            PsuPanel(strings, psuReading(t))
+            PsuPanel(strings, psuReading(scene, t))
         }
         Text(
             EGG_SIGNATURE,
@@ -191,7 +200,8 @@ private fun PsuPanel(strings: AppStrings, psu: PsuReading) {
     Text(
         buildAnnotatedString {
             append("${strings.eggPsu}  ")
-            append(String.format(Locale.US, "%4.1f V  %4.2f A", psu.volts, psu.amps))
+            val volts = if (psu.volts < 10f) "%4.2f" else "%4.1f"
+            append(String.format(Locale.US, "$volts V  %4.2f A", psu.volts, psu.amps))
             withStyle(SpanStyle(
                 color = if (psu.limiting) Color(0xFFFF5A4E) else Color(0x40FF5A4E),
             )) { append("  CC") }
@@ -204,12 +214,20 @@ private fun PsuPanel(strings: AppStrings, psu: PsuReading) {
     )
 }
 
+/** Vibracion fuerte en los estallidos de C12; suave cuando cae la lata y cuando R7 o D3 se parten. */
+private val STRONG_HITS = floatArrayOf(EggTimeline.POP, 2 * EggTimeline.CYCLE + EggTimeline.POP)
+private val LIGHT_HITS = floatArrayOf(
+    EggTimeline.CYCLE + EggTimeline.POP,
+    2 * EggTimeline.CYCLE + EggTimeline.LAND,
+    3 * EggTimeline.CYCLE + EggTimeline.POP,
+)
+
 private fun eggHaptics(view: View, from: Float, to: Float) {
     fun crossed(at: Float) = if (from <= to) at > from && at <= to else at > from || at <= to
     when {
-        crossed(EggTimeline.POP) || crossed(EggTimeline.CYCLE + EggTimeline.POP) ->
+        STRONG_HITS.any { crossed(it) } ->
             view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        crossed(EggTimeline.CYCLE + EggTimeline.LAND) ->
+        LIGHT_HITS.any { crossed(it) } ->
             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
     }
 }
@@ -217,7 +235,7 @@ private fun eggHaptics(view: View, from: Float, to: Float) {
 /**
  * Banda sonora en loop por AudioTrack (volumen multimedia). Ademas es el
  * reloj maestro de la animacion: segundos ya escuchados, latencia de salida
- * incluida, para que el POP suene justo cuando se ve.
+ * incluida, para que cada falla suene justo cuando se ve.
  */
 private class EggAudio private constructor(
     private val pcm: ShortArray,
@@ -322,8 +340,8 @@ private class EggStage(val w: Float, val h: Float) {
 }
 
 private fun DrawScope.drawEggScene(
+    scene: EggScene,
     t: Float,
-    rocket: Boolean,
     timeSec: Float,
     seeds: EggSeeds,
     m: TextMeasurer,
@@ -331,12 +349,21 @@ private fun DrawScope.drawEggScene(
     val st = EggStage(size.width, size.height)
     val age = t - EggTimeline.POP
     drawBackdrop(st, timeSec, seeds.stars)
-    val shake = shakeOffset(t, age, rocket)
-    translate(shake.x, shake.y) {
+    val cam = camera(scene, t, st)
+    val shake = shakeOffset(scene, t, age)
+    withTransform({
+        translate(cam.shift.x + shake.x, cam.shift.y + shake.y)
+        scale(cam.zoom, cam.zoom, cam.pivot)
+    }) {
         drawBoard(st, m)
-        if (rocket) drawRocketFailure(st, t, age, seeds, m) else drawVentFailure(st, t, age, seeds, m)
+        when (scene) {
+            EggScene.VENT -> drawVentFailure(st, t, age, seeds, m)
+            EggScene.RESISTOR -> drawResistorFailure(st, t, age, seeds, m)
+            EggScene.ROCKET -> drawRocketFailure(st, t, age, seeds, m)
+            EggScene.DIODE -> drawDiodeFailure(st, t, age, seeds, m)
+        }
     }
-    // Fundido al terminar cada ciclo y al empezar el siguiente: reinicia sin saltos.
+    // Fundido al terminar cada escena y al empezar la siguiente: reinicia sin saltos.
     val fade = max(
         1f - smoothstep(0f, EggTimeline.FADE, t),
         smoothstep(EggTimeline.CYCLE - EggTimeline.FADE, EggTimeline.CYCLE, t),
@@ -344,16 +371,34 @@ private fun DrawScope.drawEggScene(
     if (fade > 0.001f) drawRect(Color(0xFF050203).copy(alpha = fade))
 }
 
-/** Sacudon del estallido (y uno chico cuando la lata cae). */
-private fun DrawScope.shakeOffset(t: Float, age: Float, rocket: Boolean): Offset {
+private class Camera(val zoom: Float, val pivot: Offset, val shift: Offset)
+
+/** Con R7 y D3 la camara se acerca a la victima, como una toma macro. */
+private fun camera(scene: EggScene, t: Float, st: EggStage): Camera {
+    val (focus, zoom) = when (scene) {
+        EggScene.RESISTOR -> resistorGeom(st).center to 2.8f
+        EggScene.DIODE -> diodeGeom(st).center to 3.2f
+        else -> return Camera(1f, Offset.Zero, Offset.Zero)
+    }
+    val k = smoothstep(0.2f, 1.6f, t)
+    val target = Offset(st.w * 0.5f, st.h * 0.55f)
+    return Camera(mix(1f, zoom, k), focus, (target - focus) * k)
+}
+
+/** Sacudon en cada falla (fuerte con C12) y uno chico cuando la lata cae. */
+private fun DrawScope.shakeOffset(scene: EggScene, t: Float, age: Float): Offset {
     var amp = 0f
     var a = 0f
     if (age in 0f..0.5f) {
-        amp = (if (rocket) 9f else 7f) * exp(-age / 0.1f)
+        amp = when (scene) {
+            EggScene.ROCKET -> 9f
+            EggScene.VENT -> 7f
+            else -> 2.5f
+        } * exp(-age / 0.1f)
         a = age
     }
     val land = t - EggTimeline.LAND
-    if (rocket && land in 0f..0.3f) {
+    if (scene == EggScene.ROCKET && land in 0f..0.3f) {
         amp = max(amp, 3f * exp(-land / 0.06f))
         a = land
     }
@@ -426,7 +471,7 @@ private fun DrawScope.drawBoard(st: EggStage, m: TextMeasurer) {
     drawSilk(m, "C12", st.at(0.5f, 0.70f), st)
     drawSilk(m, "+", st.at(0.41f, 0.53f), st)
     drawSilk(m, "R7", st.at(0.20f, 0.79f), st)
-    drawSilk(m, "D3", st.at(0.80f, 0.07f), st)
+    drawSilk(m, "D3", st.at(0.80f, 0.36f), st)
     drawSilk(m, "TP+", st.at(0.27f, 0.88f), st)
     drawSilk(m, "TP−", st.at(0.73f, 0.88f), st)
 }
@@ -451,55 +496,228 @@ private fun DrawScope.drawSilk(m: TextMeasurer, text: String, at: Offset, st: Eg
     }
 }
 
-/** Componente axial acostado sobre la placa (resistencia, diodo) con sus patas. */
-private fun DrawScope.drawAxial(
-    st: EggStage,
-    left: Offset,
-    right: Offset,
-    body: List<Color>,
-    bands: List<Pair<Float, Color>>,
-) {
-    val d = st.capW * 0.15f
+// --- R7 y D3: componentes axiales acostados -------------------------------
+
+/** Axial acostado entre dos pads: patas que suben al eje y cuerpo entre ellas. */
+private class Axial(st: EggStage, u1: Float, u2: Float, v: Float, diameter: Float, inset: Float) {
+    val left = st.at(u1, v)
+    val right = st.at(u2, v)
+    val d = st.capW * diameter
     val y = (left.y + right.y) / 2f - d * 0.75f
-    val bodyL = mix(left.x, right.x, 0.18f)
-    val bodyR = mix(left.x, right.x, 0.82f)
-    val lead = Color(0xFFB9C0C8)
-    val leadW = 1.6.dp.toPx()
-    drawLine(lead, left, Offset(left.x, y), leadW)
-    drawLine(lead, Offset(left.x, y), Offset(bodyL, y), leadW)
-    drawLine(lead, right, Offset(right.x, y), leadW)
-    drawLine(lead, Offset(right.x, y), Offset(bodyR, y), leadW)
-    drawOval(Color.Black.copy(alpha = 0.35f), Offset(bodyL, left.y - d * 0.25f),
-        Size(bodyR - bodyL, d * 0.5f))
-    drawRoundRect(Brush.verticalGradient(body, y - d / 2f, y + d / 2f),
-        Offset(bodyL, y - d / 2f), Size(bodyR - bodyL, d), CornerRadius(d * 0.45f))
-    bands.forEach { (f, c) ->
-        drawRect(c, Offset(mix(bodyL, bodyR, f), y - d / 2f + 1f),
-            Size((bodyR - bodyL) * 0.07f, d - 2f))
+    val bodyL = mix(left.x, right.x, inset)
+    val bodyR = mix(left.x, right.x, 1f - inset)
+    val len = bodyR - bodyL
+    val center = Offset((bodyL + bodyR) / 2f, y)
+
+    /** Donde muerde la pinza: la pata, entre el pad y el cuerpo. */
+    fun bite(leftLead: Boolean): Offset {
+        val pad = if (leftLead) left else right
+        return Offset(pad.x, mix(pad.y, y, 0.45f))
     }
-    drawLine(Color.White.copy(alpha = 0.25f), Offset(bodyL + d * 0.3f, y - d * 0.25f),
-        Offset(bodyR - d * 0.3f, y - d * 0.25f), 1.5.dp.toPx(), StrokeCap.Round)
 }
 
-private fun DrawScope.drawResistor(st: EggStage) = drawAxial(
-    st, st.at(0.13f, 0.62f), st.at(0.27f, 0.62f),
-    listOf(Color(0xFFEBD9AE), Color(0xFFC8AE7C), Color(0xFF8C744E)),
-    listOf(0.20f to Color(0xFF6B3A1F), 0.34f to Color(0xFF151515),
-        0.48f to Color(0xFFB3261E), 0.76f to Color(0xFFC9A227)),
-)
+private fun resistorGeom(st: EggStage) = Axial(st, 0.13f, 0.27f, 0.62f, 0.15f, 0.18f)
 
-private fun DrawScope.drawDiode(st: EggStage) = drawAxial(
-    st, st.at(0.73f, 0.22f), st.at(0.87f, 0.22f),
-    listOf(Color(0xFF3A3D42), Color(0xFF1B1D20), Color(0xFF0B0C0E)),
-    listOf(0.76f to Color(0xFFC3C9D0)),
-)
+private fun diodeGeom(st: EggStage) = Axial(st, 0.73f, 0.87f, 0.22f, 0.10f, 0.22f)
 
-/** Puntos de prueba con las pinzas de la fuente: roja al +, negra al -. */
-private fun DrawScope.drawTestLeads(st: EggStage) {
-    val plus = drawTestPin(st, st.at(0.36f, 0.80f))
-    val minus = drawTestPin(st, st.at(0.64f, 0.80f))
-    drawTestLead(plus, Offset(-0.08f * st.w, st.h * 0.88f), Color(0xFFC62828), -18f)
-    drawTestLead(minus, Offset(1.08f * st.w, st.h * 0.88f), Color(0xFF1E1E1E), 18f)
+private fun DrawScope.drawAxialLeads(g: Axial) {
+    val lead = Color(0xFFB9C0C8)
+    val w = 1.6.dp.toPx()
+    drawLine(lead, g.left, Offset(g.left.x, g.y), w)
+    drawLine(lead, Offset(g.left.x, g.y), Offset(g.bodyL, g.y), w)
+    drawLine(lead, g.right, Offset(g.right.x, g.y), w)
+    drawLine(lead, Offset(g.right.x, g.y), Offset(g.bodyR, g.y), w)
+    drawOval(Color.Black.copy(alpha = 0.35f), Offset(g.bodyL, g.left.y - g.d * 0.25f),
+        Size(g.len, g.d * 0.5f))
+}
+
+/**
+ * R7: 10 ohm 1/4 W (marron, negro, negro, oro). Con 40 W se carboniza desde
+ * el centro ([char]), se pone incandescente ([glow]) y al partirse ([split])
+ * las dos mitades se levantan y queda abierta.
+ */
+private fun DrawScope.drawResistor(st: EggStage, char: Float = 0f, glow: Float = 0f, split: Float = 0f) {
+    val g = resistorGeom(st)
+    drawAxialLeads(g)
+    val top = g.y - g.d / 2f
+    val corner = CornerRadius(g.d * 0.45f)
+    fun body() {
+        drawRoundRect(
+            Brush.verticalGradient(
+                listOf(
+                    lerp(Color(0xFFEBD9AE), Color(0xFF6A513C), char * 0.7f),
+                    lerp(Color(0xFFC8AE7C), Color(0xFF4A3526), char * 0.7f),
+                    lerp(Color(0xFF8C744E), Color(0xFF2A1C12), char * 0.7f),
+                ),
+                top, top + g.d,
+            ),
+            Offset(g.bodyL, top), Size(g.len, g.d), corner,
+        )
+        listOf(0.20f to Color(0xFF6B3A1F), 0.34f to Color(0xFF151515),
+            0.48f to Color(0xFF151515), 0.76f to Color(0xFFC9A227)).forEach { (f, c) ->
+            drawRect(c.copy(alpha = 1f - 0.8f * char), Offset(g.bodyL + g.len * f, top + 1f),
+                Size(g.len * 0.07f, g.d - 2f))
+        }
+        if (char > 0f) {
+            drawRoundRect(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, Color(0xFF2B1D14).copy(alpha = 0.95f * char),
+                        Color.Transparent),
+                    g.bodyL, g.bodyR,
+                ),
+                Offset(g.bodyL, top), Size(g.len, g.d), corner,
+            )
+        }
+        drawLine(Color.White.copy(alpha = 0.25f * (1f - char)), Offset(g.bodyL + g.d * 0.3f, g.y - g.d * 0.25f),
+            Offset(g.bodyR - g.d * 0.3f, g.y - g.d * 0.25f), 1.5.dp.toPx(), StrokeCap.Round)
+    }
+    if (split <= 0f) {
+        body()
+    } else {
+        val gap = g.len * 0.14f * split
+        val tilt = 16f * split
+        clipRect(right = g.center.x - gap / 2f) {
+            rotate(-tilt, Offset(g.bodyL, top + g.d)) { body() }
+        }
+        clipRect(left = g.center.x + gap / 2f) {
+            rotate(tilt, Offset(g.bodyR, top + g.d)) { body() }
+        }
+    }
+    drawHotSpot(g.center, glow, g.len * 0.45f)
+}
+
+/**
+ * D3: 1N4148 de vidrio ambar (300 mA) con el chip a la vista. Con 2 A el
+ * chip se pone incandescente ([glow]); al reventar el vidrio se raja
+ * ([cracked]), se ennegrece por dentro ([soot]) y queda en corto.
+ */
+private fun DrawScope.drawGlassDiode(st: EggStage, glow: Float = 0f, cracked: Float = 0f, soot: Float = 0f) {
+    val g = diodeGeom(st)
+    drawAxialLeads(g)
+    val top = g.y - g.d / 2f
+    val corner = CornerRadius(g.d * 0.5f)
+    drawRoundRect(
+        Brush.verticalGradient(
+            listOf(Color(0xE6F8B26A), Color(0xD9D9541E), Color(0xE68E2A0C)), top, top + g.d),
+        Offset(g.bodyL, top), Size(g.len, g.d), corner,
+    )
+    // Por dentro: los dos contactos y el chip entre ellos.
+    val slugH = g.d * 0.42f
+    drawRect(Color(0xFF3A3A3D), Offset(g.bodyL + g.len * 0.06f, g.y - slugH / 2f),
+        Size(g.len * 0.36f, slugH))
+    drawRect(Color(0xFF3A3A3D), Offset(g.center.x + g.len * 0.08f, g.y - slugH / 2f),
+        Size(g.len * 0.36f, slugH))
+    drawRect(Color(0xFF1C1C1E), Offset(g.center.x - g.len * 0.06f, g.y - slugH * 0.4f),
+        Size(g.len * 0.12f, slugH * 0.8f))
+    // Banda del catodo.
+    drawRect(Color(0xF0141414), Offset(g.bodyL + g.len * 0.80f, top + 1f), Size(g.len * 0.09f, g.d - 2f))
+    if (soot > 0f) {
+        drawRoundRect(
+            Brush.horizontalGradient(
+                listOf(Color.Transparent, Color(0xFF140A06).copy(alpha = 0.8f * soot),
+                    Color.Transparent),
+                g.bodyL, g.bodyR,
+            ),
+            Offset(g.bodyL, top), Size(g.len, g.d), corner,
+        )
+    }
+    drawLine(Color.White.copy(alpha = 0.45f), Offset(g.bodyL + g.d * 0.3f, g.y - g.d * 0.28f),
+        Offset(g.bodyR - g.d * 0.3f, g.y - g.d * 0.28f), 1.2.dp.toPx(), StrokeCap.Round)
+    if (cracked > 0f) {
+        val crack = Color.White.copy(alpha = 0.85f * cracked)
+        val w = 1.dp.toPx()
+        listOf(
+            Offset(-0.26f, -0.5f), Offset(0.20f, 0.5f), Offset(0.34f, -0.45f),
+            Offset(-0.12f, 0.5f), Offset(-0.38f, 0.2f),
+        ).forEach { (fx, fy) ->
+            val end = Offset(g.center.x + g.len * fx, g.center.y + g.d * fy)
+            val mid = Offset(g.center.x + g.len * fx * 0.5f + g.d * 0.12f, g.center.y + g.d * fy * 0.35f)
+            drawLine(crack, g.center, mid, w)
+            drawLine(crack, mid, end, w)
+        }
+    }
+    drawHotSpot(g.center, glow, g.len * 0.55f)
+}
+
+/** Color de incandescencia: rojo oscuro -> naranja -> amarillo blanquecino. */
+private fun heatColor(k: Float): Color = when {
+    k < 0.35f -> lerp(Color(0xFF4A0C04), Color(0xFFB3260A), k / 0.35f)
+    k < 0.7f -> lerp(Color(0xFFB3260A), Color(0xFFFF7A1A), (k - 0.35f) / 0.35f)
+    else -> lerp(Color(0xFFFF7A1A), Color(0xFFFFE6A3), ((k - 0.7f) / 0.3f).coerceAtMost(1f))
+}
+
+private fun DrawScope.drawHotSpot(at: Offset, k: Float, radius: Float) {
+    if (k <= 0.02f) return
+    val c = heatColor(k)
+    val a = smoothstep(0f, 0.3f, k)
+    drawCircle(
+        Brush.radialGradient(listOf(c.copy(alpha = a), c.copy(alpha = a * 0.5f), Color.Transparent),
+            at, radius),
+        radius, at,
+    )
+}
+
+/** Luz del componente al rojo sobre la placa. */
+private fun DrawScope.drawGlowSpill(at: Offset, k: Float, radius: Float) {
+    if (k <= 0.02f) return
+    drawOval(
+        Brush.radialGradient(listOf(heatColor(k).copy(alpha = 0.35f * k), Color.Transparent), at, radius),
+        Offset(at.x - radius, at.y - radius * TILT), Size(2f * radius, 2f * radius * TILT),
+    )
+}
+
+/** Mascara chamuscada debajo de lo que se quemo. */
+private fun DrawScope.drawScorch(at: Offset, rx: Float, alpha: Float) {
+    if (alpha <= 0.01f) return
+    val ry = rx * TILT
+    drawOval(
+        Brush.radialGradient(
+            listOf(Color(0xFF140805).copy(alpha = alpha), Color(0xFF3A1A0A).copy(alpha = alpha * 0.6f),
+                Color.Transparent),
+            at, rx,
+        ),
+        Offset(at.x - rx, at.y - ry), Size(2f * rx, 2f * ry),
+    )
+}
+
+/** Llama del recubrimiento quemandose: titila y se mece; base azulada, punta amarilla. */
+private fun DrawScope.drawFlame(base: Offset, height: Float, width: Float, t: Float, strength: Float) {
+    if (strength <= 0.01f) return
+    val flicker = 0.82f + 0.18f * sin(t * 31f) * sin(t * 17f + 1.3f)
+    val sway = sin(t * 9f) * width * 0.3f
+    fun tongue(scale: Float, colors: List<Color>) {
+        val w = width * scale
+        val h = height * scale * flicker * strength
+        val tip = Offset(base.x + sway * scale, base.y - h)
+        val path = Path().apply {
+            moveTo(base.x - w / 2f, base.y)
+            cubicTo(base.x - w * 0.62f, base.y - h * 0.45f, tip.x - w * 0.18f, base.y - h * 0.78f, tip.x, tip.y)
+            cubicTo(tip.x + w * 0.18f, base.y - h * 0.78f, base.x + w * 0.62f, base.y - h * 0.45f,
+                base.x + w / 2f, base.y)
+            close()
+        }
+        drawPath(path, Brush.verticalGradient(colors, tip.y, base.y))
+    }
+    tongue(1f, listOf(Color(0x00FF6A1A), Color(0xB3FF6A1A), Color(0xE6FFA53A)))
+    tongue(0.62f, listOf(Color(0x00FFF2B0), Color(0xE6FFE38A), Color(0xB36E9BFF)))
+}
+
+// --- Fuente de banco ---------------------------------------------------------
+
+/**
+ * Pinzas de la fuente: en los puntos de prueba de C12, o mordiendo las patas
+ * de R7 o D3 (roja al +, al anodo de D3). Las mangas apuntan hacia sus cables.
+ */
+private fun DrawScope.drawTestLeads(st: EggStage, scene: EggScene) {
+    val tpPlus = drawTestPin(st, st.at(0.36f, 0.80f))
+    val tpMinus = drawTestPin(st, st.at(0.64f, 0.80f))
+    val (plus, minus, tilt) = when (scene) {
+        EggScene.RESISTOR -> resistorGeom(st).let { Triple(it.bite(true), it.bite(false), 40f) }
+        EggScene.DIODE -> diodeGeom(st).let { Triple(it.bite(true), it.bite(false), 40f) }
+        else -> Triple(tpPlus, tpMinus, 20f)
+    }
+    drawTestLead(plus, Offset(-0.08f * st.w, st.h * 0.88f), Color(0xFFC62828), tilt)
+    drawTestLead(minus, Offset(1.08f * st.w, st.h * 0.88f), Color(0xFF1E1E1E), -tilt)
 }
 
 private fun DrawScope.drawTestPin(st: EggStage, base: Offset): Offset {
@@ -511,10 +729,13 @@ private fun DrawScope.drawTestPin(st: EggStage, base: Offset): Offset {
 }
 
 private fun DrawScope.drawTestLead(clip: Offset, exit: Offset, body: Color, tiltDeg: Float) {
-    val start = Offset(clip.x, clip.y + 22.dp.toPx())
+    // La manga sale hacia abajo girada tiltDeg; el cable arranca en su punta.
+    val reach = 24.dp.toPx()
+    val dir = Offset(-sin(tiltDeg.rad), cos(tiltDeg.rad))
+    val start = clip + dir * reach
     val cable = Path().apply {
         moveTo(start.x, start.y)
-        cubicTo(start.x, start.y + size.height * 0.08f,
+        cubicTo(start.x + dir.x * reach * 2f, start.y + size.height * 0.08f,
             mix(exit.x, start.x, 0.35f), exit.y - size.height * 0.03f, exit.x, exit.y)
     }
     drawPath(cable, Color(0xFF070707), style = Stroke(7.dp.toPx(), cap = StrokeCap.Round))
@@ -774,12 +995,12 @@ private fun DrawScope.drawLeftovers(st: EggStage) {
     drawOval(Color(0xFF4A4E55), Offset(bung.x - r, bung.y - r * 0.85f), Size(2f * r, r * 0.8f))
 }
 
-// --- Las dos fallas ---------------------------------------------------------
+// --- Las cuatro fallas -------------------------------------------------------
 
 private fun DrawScope.drawVentFailure(st: EggStage, t: Float, age: Float, seeds: EggSeeds, m: TextMeasurer) {
     val popped = age >= 0f
     val dome = capDome(t)
-    drawDiode(st)
+    drawGlassDiode(st)
     if (popped) drawStain(st, st.base, smoothstep(0.1f, 1.0f, age), 0.95f)
     drawContactShadow(st, st.base)
     drawStandingCap(
@@ -789,7 +1010,7 @@ private fun DrawScope.drawVentFailure(st: EggStage, t: Float, age: Float, seeds:
         dripAge = age,
     )
     drawResistor(st)
-    drawTestLeads(st)
+    drawTestLeads(st, EggScene.VENT)
     val lift = Offset(0f, -dome * st.capW * 0.06f)
     for (p in seeds.ventPuffs) drawPuff(p, st.vent + Offset(p.ox * st.capW, 0f) + lift, t - p.born, st.capW)
     if (popped) {
@@ -800,14 +1021,43 @@ private fun DrawScope.drawVentFailure(st: EggStage, t: Float, age: Float, seeds:
     }
 }
 
+/** R7: se carboniza, humea blanco y despues pardo, se pone al rojo, prende fuego y se parte. */
+private fun DrawScope.drawResistorFailure(st: EggStage, t: Float, age: Float, seeds: EggSeeds, m: TextMeasurer) {
+    val popped = age >= 0f
+    val g = resistorGeom(st)
+    val glow = if (popped) exp(-age / 0.6f) else smoothstep(2.0f, 3.1f, t)
+    val flame = when {
+        t < EggTimeline.FLAME -> 0f
+        popped -> exp(-age / 0.12f)
+        else -> smoothstep(EggTimeline.FLAME, EggTimeline.FLAME + 0.15f, t)
+    }
+    drawGlassDiode(st)
+    drawContactShadow(st, st.base)
+    drawStandingCap(st, m, 0f, petals = 0f, burnt = 0f, dripAge = -1f)
+    val under = Offset(g.center.x, g.left.y)
+    drawScorch(under, g.len * 0.75f, 0.6f * smoothstep(2.0f, 3.2f, t))
+    drawGlowSpill(under, glow, g.len * 1.4f)
+    val split = if (popped) 1f - (1f - min(1f, age / 0.06f)).let { it * it } else 0f
+    drawResistor(st, smoothstep(1.0f, 2.9f, t), glow, split)
+    drawTestLeads(st, EggScene.RESISTOR)
+    for (p in seeds.resistorSmoke) {
+        drawPuff(p, g.center + Offset(p.ox * st.capW, -g.d * 0.3f), t - p.born, st.capW)
+    }
+    drawFlame(Offset(g.center.x, g.y - g.d * 0.35f), st.capW * 0.5f, g.len * 0.55f, t, flame)
+    if (popped) {
+        drawSparks(seeds.embers, g.center, age, st.capW)
+        drawFlash(g.center, age, st.capW * 0.3f)
+    }
+}
+
 private fun DrawScope.drawRocketFailure(st: EggStage, t: Float, age: Float, seeds: EggSeeds, m: TextMeasurer) {
     val popped = age >= 0f
-    drawDiode(st)
+    drawGlassDiode(st)
     if (!popped) {
         drawContactShadow(st, st.base)
         drawStandingCap(st, m, capDome(t) * 0.5f, petals = 0f, burnt = 0f, dripAge = -1f)
         drawResistor(st)
-        drawTestLeads(st)
+        drawTestLeads(st, EggScene.ROCKET)
         // El tapon de goma cede: vapor por la junta de abajo.
         for (p in seeds.rocketPuffs) {
             if (p.from == PuffFrom.BASE && p.born < EggTimeline.POP) {
@@ -834,11 +1084,43 @@ private fun DrawScope.drawRocketFailure(st: EggStage, t: Float, age: Float, seed
     val pose = rocketPose(st, age)
     drawLooseCan(st, m, pose.center, pose.angle)
     drawResistor(st)
-    drawTestLeads(st)
+    drawTestLeads(st, EggScene.ROCKET)
     for (b in seeds.rocketBits) drawBit(b, st.base, age, st)
     for (d in seeds.rocketDrops) drawDrop(d, st.base, age, st)
     drawSparks(seeds.sparks, st.base, age, st.capW)
     drawFlash(st.base, age, st.capW)
+}
+
+/** D3: el chip se pone incandescente, hierve el flux, el vidrio se raja y queda en corto. */
+private fun DrawScope.drawDiodeFailure(st: EggStage, t: Float, age: Float, seeds: EggSeeds, m: TextMeasurer) {
+    val popped = age >= 0f
+    val g = diodeGeom(st)
+    val glow = if (popped) exp(-age / 0.15f) else smoothstep(1.0f, 3.1f, t)
+    val under = Offset(g.center.x, g.left.y)
+    drawScorch(under, g.len * 0.6f, 0.45f * smoothstep(2.4f, 3.4f, t))
+    drawGlowSpill(under, glow, g.len * 1.6f)
+    drawGlassDiode(
+        st, glow,
+        cracked = if (popped) min(1f, age / 0.03f) else 0f,
+        soot = if (popped) smoothstep(0f, 0.4f, age) else 0f,
+    )
+    for (p in seeds.diodeSmoke) {
+        // El flux humea en los pads; el soplo de la grieta sale del cuerpo.
+        val origin = if (p.from == PuffFrom.BASE) {
+            Offset(g.center.x + p.ox * st.capW, g.left.y)
+        } else {
+            g.center + Offset(p.ox * st.capW, 0f)
+        }
+        drawPuff(p, origin, t - p.born, st.capW)
+    }
+    drawContactShadow(st, st.base)
+    drawStandingCap(st, m, 0f, petals = 0f, burnt = 0f, dripAge = -1f)
+    drawResistor(st)
+    drawTestLeads(st, EggScene.DIODE)
+    if (popped) {
+        for (b in seeds.shards) drawBit(b, g.center, age, st)
+        drawFlash(g.center, age, st.capW * 0.25f)
+    }
 }
 
 private class Pose(val center: Offset, val angle: Float)
@@ -905,9 +1187,10 @@ private fun DrawScope.drawStreamer(st: EggStage, age: Float) {
 
 private class EggStar(val x: Float, val y: Float, val phase: Float, val radiusDp: Float)
 
-private enum class PuffFrom { VENT, BASE, TRAIL }
+/** De donde sale cada bocanada: tapa o cuerpo, pie o pads, o la estela de la lata. */
+private enum class PuffFrom { VENT, BASE, TRAIL, PART }
 
-/** Bocanada de vapor: velocidades en anchos de lata por segundo, radios en anchos de lata. */
+/** Bocanada: velocidades en anchos de lata por segundo, radios en anchos de lata. */
 private class Puff(
     val from: PuffFrom,
     val ox: Float,
@@ -919,10 +1202,11 @@ private class Puff(
     val life: Float,
     val alpha: Float,
     val phase: Float,
-    val dark: Boolean,
+    /** 0 = vapor blanco; 1 = humo pardo de algo que se quema. */
+    val shade: Float,
 )
 
-/** Trocito de papel o aluminio del bobinado: frena en el aire, flamea y cae sobre la placa. */
+/** Trocito que vuela: frena en el aire, flamea y cae sobre la placa ([fall] = caida final). */
 private class Bit(
     val ox: Float,
     val vx: Float,
@@ -935,6 +1219,8 @@ private class Bit(
     val foil: Boolean,
     val flutter: Float,
     val landV: Float,
+    val fall: Float = 0.55f,
+    val drag: Float = 0.3f,
 )
 
 private class Drop(val ox: Float, val vx: Float, val vy: Float, val sizeDp: Float, val landV: Float)
@@ -950,6 +1236,10 @@ private class EggSeeds {
     val ventDrops: List<Drop>
     val rocketDrops: List<Drop>
     val sparks: List<Spark>
+    val resistorSmoke: List<Puff>
+    val embers: List<Spark>
+    val diodeSmoke: List<Puff>
+    val shards: List<Bit>
 
     init {
         // Starfield deterministico con la semilla de la familia MT.
@@ -960,6 +1250,7 @@ private class EggSeeds {
         }
         val rng = Random(20261028)
         fun r(a: Float, b: Float) = a + (b - a) * rng.nextFloat()
+        fun smoky(chance: Float) = if (rng.nextFloat() < chance) 0.6f else 0f
         val pop = EggTimeline.POP
         val wispFrom = EggTimeline.BOIL_START + 0.5f
         ventPuffs = buildList {
@@ -967,35 +1258,33 @@ private class EggSeeds {
             repeat(16) { i ->
                 add(Puff(PuffFrom.VENT, r(-0.3f, 0.3f), wispFrom + i * (pop - wispFrom) / 16f,
                     r(-0.25f, 0.25f), r(-1.1f, -0.7f), 0.035f, 0.28f, 1.0f,
-                    0.10f + 0.12f * i / 16f, r(0f, 6.28f), false))
+                    0.10f + 0.12f * i / 16f, r(0f, 6.28f), 0f))
             }
             // Chorro del estallido.
             repeat(24) {
                 add(Puff(PuffFrom.VENT, r(-0.15f, 0.15f), pop + r(0f, 0.12f), r(-0.9f, 0.9f),
-                    r(-7f, -4f), 0.07f, 0.85f, r(1.4f, 2.2f), 0.16f, r(0f, 6.28f), false))
+                    r(-7f, -4f), 0.07f, 0.85f, r(1.4f, 2.2f), 0.16f, r(0f, 6.28f), 0f))
             }
             // Nube que queda flotando.
             repeat(20) {
                 add(Puff(PuffFrom.VENT, r(-0.3f, 0.3f), pop + r(0.03f, 0.5f), r(-1.4f, 1.4f),
-                    r(-2.4f, -0.8f), 0.10f, 0.7f, r(1.8f, 2.5f), 0.12f, r(0f, 6.28f),
-                    rng.nextFloat() < 0.3f))
+                    r(-2.4f, -0.8f), 0.10f, 0.7f, r(1.8f, 2.5f), 0.12f, r(0f, 6.28f), smoky(0.3f)))
             }
         }
         rocketPuffs = buildList {
             repeat(12) { i ->
                 add(Puff(PuffFrom.BASE, r(-0.55f, 0.55f), wispFrom + i * (pop - wispFrom) / 12f,
                     r(-0.4f, 0.4f), r(-0.6f, -0.3f), 0.035f, 0.30f, 1.0f,
-                    0.10f + 0.10f * i / 12f, r(0f, 6.28f), false))
+                    0.10f + 0.10f * i / 12f, r(0f, 6.28f), 0f))
             }
             repeat(18) {
                 add(Puff(PuffFrom.BASE, r(-0.4f, 0.4f), pop + r(0f, 0.2f), r(-1.8f, 1.8f),
-                    r(-3f, -1f), 0.10f, 0.8f, r(1.8f, 2.4f), 0.15f, r(0f, 6.28f),
-                    rng.nextFloat() < 0.35f))
+                    r(-3f, -1f), 0.10f, 0.8f, r(1.8f, 2.4f), 0.15f, r(0f, 6.28f), smoky(0.35f)))
             }
             // Estela de la lata que vuela.
             repeat(18) { i ->
                 add(Puff(PuffFrom.TRAIL, 0f, pop + i * 0.035f, r(-0.2f, 0.2f), r(-0.3f, 0.3f),
-                    0.05f, 0.5f, 1.4f, 0.14f, r(0f, 6.28f), false))
+                    0.05f, 0.5f, 1.4f, 0.14f, r(0f, 6.28f), 0f))
             }
         }
         fun bits(count: Int, spread: Float, up: Float, down: Float) = List(count) {
@@ -1013,10 +1302,42 @@ private class EggSeeds {
             Drop(r(-0.4f, 0.4f), r(-2.2f, 2.2f), r(-3f, -1f), r(2f, 3.2f), r(0.45f, 0.95f))
         }
         sparks = List(6) { Spark(r(-2.4f, -0.7f), r(2.5f, 5f), r(0.12f, 0.26f), r(1.4f, 2.4f)) }
+        // R7: humo blanco al principio y pardo al carbonizarse; bocanada al partirse.
+        resistorSmoke = buildList {
+            repeat(36) { i ->
+                val born = 1.2f + 3.6f * i / 36f + r(0f, 0.05f)
+                val burning = smoothstep(1.8f, 2.6f, born) * (1f - 0.5f * smoothstep(pop, pop + 1.2f, born))
+                add(Puff(PuffFrom.PART, r(-0.14f, 0.14f), born, r(-0.15f, 0.15f), r(-0.9f, -0.5f),
+                    0.02f, 0.22f, r(1.6f, 2.4f), 0.08f + 0.12f * burning, r(0f, 6.28f), 0.75f * burning))
+            }
+            repeat(8) {
+                add(Puff(PuffFrom.PART, r(-0.08f, 0.08f), pop + r(0f, 0.1f), r(-0.5f, 0.5f),
+                    r(-1.6f, -0.8f), 0.03f, 0.3f, r(1.2f, 1.8f), 0.18f, r(0f, 6.28f), 0.45f))
+            }
+        }
+        embers = List(8) { Spark(r(-2.7f, -0.45f), r(0.8f, 2.0f), r(0.4f, 0.8f), r(1.2f, 2.0f)) }
+        // D3: hierve el flux de sus dos soldaduras y sale un soplo por la grieta del vidrio.
+        diodeSmoke = buildList {
+            repeat(20) { i ->
+                val side = if (i % 2 == 0) -0.29f else 0.29f
+                add(Puff(PuffFrom.BASE, side + r(-0.03f, 0.03f), 1.6f + 1.6f * i / 20f + r(0f, 0.05f),
+                    r(-0.1f, 0.1f), r(-0.6f, -0.35f), 0.015f, 0.16f, r(1.2f, 1.8f),
+                    r(0.07f, 0.12f), r(0f, 6.28f), 0.15f))
+            }
+            repeat(8) {
+                add(Puff(PuffFrom.PART, r(-0.05f, 0.05f), pop + r(0f, 0.08f), r(-0.6f, 0.6f),
+                    r(-1.4f, -0.6f), 0.02f, 0.25f, r(1.0f, 1.6f), 0.16f, r(0f, 6.28f), 0.35f))
+            }
+        }
+        shards = List(6) {
+            Bit(r(-0.05f, 0.05f), r(-1.5f, 1.5f), r(-2.5f, -1f), r(-720f, 720f), r(6f, 12f),
+                r(0f, 6.28f), r(0.015f, 0.03f), r(0.01f, 0.02f), true, r(0f, 0.03f),
+                r(0.12f, 0.40f), fall = 2.5f, drag = 1.0f)
+        }
     }
 }
 
-/** Vapor: frena al salir, sube por flotacion, deriva con el aire y se expande al disiparse. */
+/** Vapor o humo: frena al salir, sube por flotacion, deriva con el aire y se expande. */
 private fun DrawScope.drawPuff(p: Puff, origin: Offset, age: Float, capW: Float) {
     if (age < 0f || age > p.life) return
     val drag = 0.22f
@@ -1026,7 +1347,7 @@ private fun DrawScope.drawPuff(p: Puff, origin: Offset, age: Float, capW: Float)
     val radius = (p.r0 + p.grow * 0.8f * (1f - exp(-age / 0.8f)) + 0.15f * age) * capW
     val alpha = p.alpha * smoothstep(0f, 0.07f, age) * (1f - smoothstep(p.life * 0.35f, p.life, age))
     if (alpha < 0.004f) return
-    val c = if (p.dark) Color(0xFF8E949B) else Color(0xFFDADDE1)
+    val c = lerp(Color(0xFFDADDE1), Color(0xFF5A4F48), p.shade)
     val center = Offset(x, y)
     drawCircle(
         Brush.radialGradient(
@@ -1037,22 +1358,19 @@ private fun DrawScope.drawPuff(p: Puff, origin: Offset, age: Float, capW: Float)
     )
 }
 
-private const val BIT_DRAG = 0.3f
-private const val BIT_FALL = 0.55f
-
 private fun DrawScope.drawBit(b: Bit, origin: Offset, age: Float, st: EggStage) {
     if (age <= 0f) return
     val capW = st.capW
     val o = Offset(origin.x + b.ox * capW, origin.y)
     val landY = mix(st.farY, st.nearY, b.landV)
-    fun dy(a: Float) = ((b.vy - BIT_FALL) * BIT_DRAG * (1f - exp(-a / BIT_DRAG)) + BIT_FALL * a) * capW
-    fun dx(a: Float) = (b.vx * BIT_DRAG * (1f - exp(-a / BIT_DRAG)) +
+    fun dy(a: Float) = ((b.vy - b.fall) * b.drag * (1f - exp(-a / b.drag)) + b.fall * a) * capW
+    fun dx(a: Float) = (b.vx * b.drag * (1f - exp(-a / b.drag)) +
         b.flutter * sin(5.5f * a + b.phase) * min(1f, a / 0.5f)) * capW
     var a = age
     var landed = false
     if (o.y + dy(age) >= landY) {
         // Momento en que toco la placa (despues de subir), por biseccion.
-        var lo = min(age, BIT_DRAG * ln((BIT_FALL - b.vy) / BIT_FALL))
+        var lo = min(age, b.drag * ln((b.fall - b.vy) / b.fall))
         var hi = age
         repeat(18) {
             val mid = (lo + hi) / 2f
@@ -1098,7 +1416,7 @@ private fun DrawScope.drawDrop(d: Drop, origin: Offset, age: Float, st: EggStage
     }
 }
 
-/** Pocas chispas y muy cortas: un electrolitico revienta con vapor, no con fuegos artificiales. */
+/** Chispas cortas y pocas: los componentes fallan con humo, no con fuegos artificiales. */
 private fun DrawScope.drawSparks(sparks: List<Spark>, at: Offset, age: Float, capW: Float) {
     if (age < 0f) return
     for (s in sparks) {
@@ -1115,11 +1433,11 @@ private fun DrawScope.drawSparks(sparks: List<Spark>, at: Offset, age: Float, ca
     }
 }
 
-/** Destello breve y localizado en el punto del estallido. */
-private fun DrawScope.drawFlash(at: Offset, age: Float, capW: Float) {
+/** Destello breve y localizado en el punto de la falla. */
+private fun DrawScope.drawFlash(at: Offset, age: Float, size: Float) {
     if (age < 0f || age > 0.25f) return
     val a = 0.9f * exp(-age / 0.045f)
-    val r = capW * (1f + age * 4f)
+    val r = size * (1f + age * 4f)
     drawCircle(
         Brush.radialGradient(
             listOf(Color(0xFFFFFBEA).copy(alpha = a), Color(0xFFFFC266).copy(alpha = a * 0.45f),
