@@ -19,6 +19,7 @@ La foto anotada queda en /tmp/boardpilot_annotated.jpg.
 import base64
 import io
 import json
+import re
 import os
 import sys
 import urllib.error
@@ -45,11 +46,11 @@ Rules:
 - If visible damage has NO candidate box around it, report it in "unmappedDamage" with a tight normalized box (x,y,w,h in 0..1) around the damaged component/area; in that case you may reference that region as componentId "dmg1-spark" in hypotheses and measurements. If there is no unmapped damage, set "unmappedDamage" to null.
 - componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts; never invent silkscreen reference designators.
 - At most 4 hypotheses ranked by likelihood for the symptom (on a dead switch-mode power supply consider fuse, bridge rectifier, bulk capacitor, switching MOSFET short, startup resistor, PWM controller supply, optocoupler/feedback, secondary diodes and output capacitors) adapted to what is actually visible.
-- For each hypothesis, "fix" says what to replace or repair if it is confirmed, with a generic replacement spec when it applies (part type, key ratings, package and a common part number as an example).
+- For each hypothesis, "fix" says what to replace or repair if it is confirmed, written as a direct action without restating the condition (for example "Replace with ..."), with a generic replacement spec when it applies (part type, key ratings, package and a common part number as an example).
 - Whenever you give hypotheses, also give between 1 and 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
 - Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If the photo or candidates are insufficient, return empty arrays and explain in needMoreEvidence what photo/measurement you need.
-- All user-visible strings (title, rationale, fix, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE."""
+- All user-visible strings (title, rationale, fix, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
 
 
 # Mismo prompt que MetaSparkClient.PLAN_PROMPT (mantener en sync).
@@ -62,7 +63,27 @@ Rules:
 - kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.
 - Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
-- All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE."""
+- All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
+
+
+ID_IN_TEXT = re.compile(r"(?<![\w-])(h\d+[a-z]?|m\d+[a-z]?)(?![\w-])")
+
+
+def text_warnings(items: list, fields: tuple, candidate_ids: set) -> list:
+    """Ids internos o condicion repetida en textos para el tecnico (la app los limpia; aca se cuentan)."""
+    warnings = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for field in fields:
+            text = str(item.get(field) or "")
+            low = text.lower()
+            found = ID_IN_TEXT.findall(text) + [c for c in candidate_ids if c.lower() in low]
+            if found:
+                warnings.append(f"id interno en {field}: {sorted(set(found))} <- {text[:100]!r}")
+            if field == "fix" and re.match(r"\s*(si se confirma|if confirmed)\b", low):
+                warnings.append(f"fix repite la condicion: {text[:80]!r}")
+    return warnings
 
 
 def annotate(image_path: str, candidates: list[dict]) -> bytes:
@@ -230,6 +251,11 @@ def main() -> int:
     for hpos in hyps:
         print(f"HYP {hpos.get('componentId')} {hpos.get('confidence')} "
               f"{str(hpos.get('title'))[:80]} | fix: {str(hpos.get('fix'))[:110]}")
+    warns = text_warnings(hyps, ("title", "rationale", "fix"), valid_ids) + \
+        text_warnings(meas, ("instruction", "normal", "abnormal"), valid_ids)
+    for w in warns:
+        print("AVISO:", w)
+    print("textos sin ids ni condicion repetida:", "si" if not warns else f"NO ({len(warns)})")
     for p in problems:
         print("PROBLEMA:", p)
     ok = bool(hyps) and not problems
@@ -279,6 +305,10 @@ def plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) -
               f"{str(m.get('instruction'))[:120]}")
     print(f"plan={len(plan)} (ids repetidos de lo ya medido: {sorted(done_ids & {m.get('id') for m in plan})}) "
           f"needMoreEvidence={str(parsed.get('needMoreEvidence'))[:160]!r}")
+    warns = text_warnings(plan, ("instruction", "normal", "abnormal"), valid_ids)
+    for w in warns:
+        print("AVISO:", w)
+    print("textos del plan sin ids:", "si" if not warns else f"NO ({len(warns)})")
     for p in problems:
         print("PROBLEMA:", p)
     ok = bool(plan or parsed.get("needMoreEvidence")) and not problems

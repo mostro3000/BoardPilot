@@ -26,6 +26,8 @@ data class SparkPlan(
  *   destino que no existe (se usa la del mismo componente).
  * - Descarta lo que no se puede usar con seguridad: componentes inexistentes,
  *   tipos desconocidos, mediciones en alterna (red electrica) y textos vacios.
+ * - Los textos que lee el tecnico no muestran ids internos ([humanize]) y el
+ *   arreglo sugerido no repite la condicion ([cleanFix]).
  * - La compuerta de seguridad la fija el dominio segun el tipo de medicion
  *   ([safetyGateFor]), nunca el modelo.
  * - Limita cantidades (4 hipotesis, 5 mediciones) y normaliza ids unicos.
@@ -75,7 +77,7 @@ object SparkOutputParser {
         }
 
         val usedHypIds = mutableSetOf<String>()
-        val hypotheses = (root["hypotheses"] as? List<*>).orEmpty()
+        val parsedHypotheses = (root["hypotheses"] as? List<*>).orEmpty()
             .mapIndexedNotNull { index, raw ->
                 val m = raw as? Map<*, *> ?: return@mapIndexedNotNull null
                 val componentId = resolve(m.str("componentId"), known, reserved)
@@ -96,12 +98,21 @@ object SparkOutputParser {
                 )
             }
             .take(MAX_HYPOTHESES)
+            .map { it.copy(title = humanize(it.title, emptyList(), known)) }
+        // Textos para el tecnico: sin ids internos y el arreglo como accion directa.
+        val hypotheses = parsedHypotheses.map {
+            it.copy(
+                rationale = humanize(it.rationale, parsedHypotheses, known),
+                fix = cleanFix(humanize(it.fix, parsedHypotheses, known)),
+            )
+        }
 
         return SparkDiagnosis(
             hypotheses = hypotheses,
             requests = requests(root["measurements"], known, reserved, hypotheses, emptySet())
                 .take(MAX_MEASUREMENTS),
-            needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() },
+            needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() }
+                ?.let { humanize(it, hypotheses, known) },
             damages = damages,
             extraComponents = extraComponents,
         )
@@ -121,9 +132,47 @@ object SparkOutputParser {
         return SparkPlan(
             requests = requests(root["measurements"], components, null, hypotheses, takenIds)
                 .take(MAX_PLAN),
-            needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() },
+            needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() }
+                ?.let { humanize(it, hypotheses, components) },
         )
     }
+
+    /**
+     * Texto para el tecnico sin ids internos: el id de un candidato pasa a su
+     * designador ("cyl2-sam1" -> "CYL 2") y el de una hipotesis a su titulo
+     * entre comillas ("confirma h1" -> "confirma “Fusible abierto”"). Solo se
+     * reemplazan ids de hipotesis con forma de id, nunca palabras comunes.
+     */
+    fun humanize(text: String, hypotheses: List<Hypothesis>, components: List<BoardComponent>): String {
+        if (text.isBlank()) return text
+        var out = text
+        components.forEach { c ->
+            out = out.replace(token(c.id, ignoreCase = true), Regex.escapeReplacement(c.designator))
+        }
+        hypotheses.filter { ID_LIKE.matches(it.id) }.forEach { h ->
+            out = out.replace(token(h.id, ignoreCase = false), Regex.escapeReplacement("“${h.title}”"))
+        }
+        return out
+    }
+
+    /**
+     * El arreglo como accion directa: la app ya lo rotula "Si se confirma", asi
+     * que "Si se confirma abierto, reemplazar..." queda "Reemplazar...".
+     */
+    fun cleanFix(fix: String): String {
+        val action = fix.replaceFirst(FIX_CONDITION, "").trim()
+        return if (action.isEmpty()) fix.trim() else action.replaceFirstChar { it.uppercaseChar() }
+    }
+
+    private val ID_LIKE = Regex("[A-Za-z]{1,4}\\d+[A-Za-z]?")
+    private val FIX_CONDITION = Regex(
+        "^\\s*(si se confirma|if confirmed)\\b[^,.:;]{0,40}[,.:;]\\s*", RegexOption.IGNORE_CASE)
+
+    /** El id como palabra suelta: ni dentro de otra palabra ni de otro id ("h1" no toca "h10"). */
+    private fun token(id: String, ignoreCase: Boolean): Regex = Regex(
+        "(?<![\\w-])" + Regex.escape(id) + "(?![\\w-])",
+        if (ignoreCase) setOf(RegexOption.IGNORE_CASE) else emptySet(),
+    )
 
     /**
      * Tipo de medicion tal como lo escribe el modelo, con sinonimos en ES/EN.
@@ -173,13 +222,14 @@ object SparkOutputParser {
             var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "m${index + 1}"
             while (id in usedReqIds) id += "b"
             usedReqIds += id
+            fun human(text: String) = humanize(text, hypotheses, components)
             MeasurementRequest(
                 id = id,
                 componentId = componentId,
                 kind = kind,
-                instruction = instruction,
-                normalDescription = m.firstStr("normal", "normalDescription", "expected").orEmpty(),
-                abnormalDescription = m.firstStr("abnormal", "abnormalDescription", "fault").orEmpty(),
+                instruction = human(instruction),
+                normalDescription = human(m.firstStr("normal", "normalDescription", "expected").orEmpty()),
+                abnormalDescription = human(m.firstStr("abnormal", "abnormalDescription", "fault").orEmpty()),
                 gate = safetyGateFor(kind),
                 targetHypothesisId = target,
             )

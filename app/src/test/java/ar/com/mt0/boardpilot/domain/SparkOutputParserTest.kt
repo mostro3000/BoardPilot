@@ -213,4 +213,42 @@ class SparkOutputParserTest {
         assertEquals(listOf(1.0, -2.5, true, null), v["b"])
         assertEquals(100.0, (v["c"] as Map<*, *>)["d"])
     }
+
+    @Test
+    fun `el arreglo queda como accion directa sin repetir la condicion`() {
+        // Visto en vivo: "Si se confirma: Si se confirma abierto, reemplazar...".
+        assertEquals("Reemplazar por fusible lento 1A 250V",
+            SparkOutputParser.cleanFix("Si se confirma abierto, reemplazar por fusible lento 1A 250V"))
+        assertEquals("Replace with SB560 5A 60V",
+            SparkOutputParser.cleanFix("If confirmed, replace with SB560 5A 60V"))
+        assertEquals("Reemplazar CYL 5 por 22 uF 400 V",
+            SparkOutputParser.cleanFix("Reemplazar CYL 5 por 22 uF 400 V"))
+    }
+
+    @Test
+    fun `los textos para el tecnico no muestran ids internos`() {
+        // Visto en vivo: "Anormal: OL sin pitido ... y confirma h1."
+        val json = """
+            {"hypotheses":[
+              {"id":"h1","title":"Fusible abierto","componentId":"cyl5-sam7","confidence":0.5,"rationale":"Si h1 se confirma, revisar trf1-sam0.","fix":"If confirmed: replace CYL5-SAM7."},
+              {"id":"fuse","title":"Otra","componentId":"trf1-sam0","confidence":0.3,"rationale":"El fuse de entrada."}
+            ],"measurements":[
+              {"id":"m1","componentId":"cyl5-sam7","kind":"CONTINUITY","instruction":"Puntas en cyl5-sam7.","normal":"Pitido.","abnormal":"OL: confirma h1, no h10.","targetHypothesisId":"h1"}
+            ],"needMoreEvidence":"Foto de trf1-sam0."}
+        """.trimIndent()
+        val d = SparkOutputParser.parse(json, components)
+        assertEquals("Si “Fusible abierto” se confirma, revisar TRF 1.", d.hypotheses[0].rationale)
+        assertEquals("Replace CYL 5.", d.hypotheses[0].fix)
+        // Un id que es una palabra comun no se toca en los textos.
+        assertEquals("El fuse de entrada.", d.hypotheses[1].rationale)
+        assertEquals("Puntas en CYL 5.", d.requests[0].instruction)
+        assertEquals("OL: confirma “Fusible abierto”, no h10.", d.requests[0].abnormalDescription)
+        assertEquals("Foto de TRF 1.", d.needMoreEvidence)
+
+        val plan = SparkOutputParser.parsePlan(
+            """{"measurements":[{"componentId":"cyl5-sam7","kind":"DIODE","instruction":"Medir cyl5-sam7 para h1.","targetHypothesisId":"h1"}]}""",
+            components, d.hypotheses, takenIds = setOf("m1"),
+        )
+        assertEquals("Medir CYL 5 para “Fusible abierto”.", plan.requests[0].instruction)
+    }
 }
