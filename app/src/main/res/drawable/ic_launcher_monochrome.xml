@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Capa monocroma para iconos tematicos (Android 13+): contornos del chip y la onda. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M43,31 L47,31 L47,38 L43,38 Z M52,31 L56,31 L56,38 L52,38 Z M61,31 L65,31 L65,38 L61,38 Z M43,70 L47,70 L47,77 L43,77 Z M52,70 L56,70 L56,77 L52,77 Z M61,70 L65,70 L65,77 L61,77 Z M31,43 L38,43 L38,47 L31,47 Z M31,52 L38,52 L38,56 L31,56 Z M31,61 L38,61 L38,65 L31,65 Z M70,43 L77,43 L77,47 L70,47 Z M70,52 L77,52 L77,56 L70,56 Z M70,61 L77,61 L77,65 L70,65 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M43,38 L65,38 A5,5 0 0 1 70,43 L70,65 A5,5 0 0 1 65,70 L43,70 A5,5 0 0 1 38,65 L38,43 A5,5 0 0 1 43,38 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4" />
+    <path
+        android:pathData="M43.5,56.5 L49,56.5 L52,47.5 L56.5,62 L59.5,54 L62,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M64.5,54 m-2.6,0 a2.6,2.6 0 1,1 5.2,0 a2.6,2.6 0 1,1 -5.2,0"
+        android:fillColor="#FFFFFF" />
+</vector>

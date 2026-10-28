@@ -1,0 +1,24 @@
+# Android / Gradle
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Secretos — NUNCA commitear
+.env
+.env.*
+.apikey
+*.key
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.DS_Store

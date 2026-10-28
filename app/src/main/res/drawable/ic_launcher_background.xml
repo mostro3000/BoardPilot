@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fondo del icono: PCB bordo oscura con pistas sutiles. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z"
+        android:fillColor="#2A070D" />
+    <path
+        android:pathData="M-2,22 L34,22 L46,34 L110,34 M-2,86 L30,86 L42,74 L110,74 M86,-2 L86,28 L74,40 L74,110"
+        android:strokeColor="#651323"
+        android:strokeWidth="3.5" />
+    <path
+        android:pathData="M18,53 m-4.5,0 a4.5,4.5 0 1,1 9,0 a4.5,4.5 0 1,1 -9,0 M90,56 m-4.5,0 a4.5,4.5 0 1,1 9,0 a4.5,4.5 0 1,1 -9,0 M22,96 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0 M92,12 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0"
+        android:fillColor="#8E2233" />
+</vector>
