@@ -7,10 +7,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -122,6 +124,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import ar.com.mt0.boardpilot.api.MetaImageClient
 import ar.com.mt0.boardpilot.api.MetaSamClient
 import ar.com.mt0.boardpilot.api.MetaSparkClient
@@ -136,6 +139,7 @@ import ar.com.mt0.boardpilot.domain.fineOf
 import ar.com.mt0.boardpilot.domain.normalizedAngle
 import ar.com.mt0.boardpilot.domain.quarterOf
 import ar.com.mt0.boardpilot.domain.PermissionGrant
+import ar.com.mt0.boardpilot.domain.PhotoLoading
 import ar.com.mt0.boardpilot.domain.ProjectStatus
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
 import ar.com.mt0.boardpilot.domain.RepairProject
@@ -174,6 +178,7 @@ import ar.com.mt0.boardpilot.i18n.isSetupComplete
 import ar.com.mt0.boardpilot.i18n.projectSubtitle
 import ar.com.mt0.boardpilot.i18n.relativeTime
 import ar.com.mt0.boardpilot.i18n.resolveLanguage
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -405,6 +410,16 @@ fun BoardPilotApp(
             referenceBitmap = withContext(Dispatchers.IO) { store.loadReference(id) }
         }
     }
+    // Con un pedido en vuelo la pantalla no se apaga: el diagnostico con
+    // razonamiento tarda minutos y el telefono se bloqueaba esperando. Va por
+    // la ventana (no por la vista) para no pisarse con el huevo de pascua.
+    val requestInFlight = mappingBusy.isNotEmpty() || sparkBusy.isNotEmpty() ||
+        planBusy.isNotEmpty() || referenceBusy.isNotEmpty()
+    DisposableEffect(requestInFlight) {
+        val window = (context as? Activity)?.window
+        if (requestInFlight) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
     LaunchedEffect(openProjectId == null, projects.size) {
         if (openProjectId != null) return@LaunchedEffect
         projects.filter { it.id !in thumbnails }.forEach { project ->
@@ -547,11 +562,25 @@ fun BoardPilotApp(
             }
         }
     }
+    // La camara deja la foto completa en un archivo propio (TakePicturePreview
+    // devolvia una miniatura: poca resolucion para SAM y Muse Spark). Se carga
+    // con el mismo cargador que la galeria (EXIF y 1600 px) y el archivo se borra.
+    var captureProjectId by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicturePreview(),
-    ) { bmp: Bitmap? ->
-        val id = openProjectId
-        if (bmp != null && id != null) setBoardPhoto(id, bmp)
+        ActivityResultContracts.TakePicture(),
+    ) { saved: Boolean ->
+        val id = captureProjectId
+        captureProjectId = null
+        val file = cameraCaptureFile(context)
+        photoScope.launch {
+            val bmp = if (saved && id != null) {
+                withContext(Dispatchers.IO) { loadBitmapDownscaled(context, Uri.fromFile(file)) }
+            } else {
+                null
+            }
+            withContext(Dispatchers.IO) { file.delete() }
+            if (bmp != null && id != null) setBoardPhoto(id, bmp)
+        }
     }
 
     // La camara NUNCA se invoca sin permiso otorgado: sin el, la app se
@@ -567,8 +596,14 @@ fun BoardPilotApp(
 
     fun launchCamera() {
         photoNotice = null
-        runCatching { cameraLauncher.launch(null) }
-            .onFailure { photoNotice = PhotoNotice.CAMERA_UNAVAILABLE }
+        val id = openProjectId ?: return
+        runCatching {
+            captureProjectId = id
+            cameraLauncher.launch(cameraCaptureUri(context))
+        }.onFailure {
+            captureProjectId = null
+            photoNotice = PhotoNotice.CAMERA_UNAVAILABLE
+        }
     }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -2374,28 +2409,49 @@ private suspend fun segmentBoardComponents(
 }
 
 /** Decodifica una Uri de galeria reducida a [maxDimension] px como maximo. */
+/**
+ * Foto de galeria o camara lista para el diagnostico: derecha segun su EXIF
+ * (la camara suele guardar los pixeles acostados con la etiqueta Orientation)
+ * y con el lado mayor en [maxDimension] px, sin agrandar las chicas.
+ */
 private fun loadBitmapDownscaled(context: Context, uri: Uri, maxDimension: Int = 1600): Bitmap? {
+    val resolver = context.contentResolver
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    context.contentResolver.openInputStream(uri)?.use {
+    resolver.openInputStream(uri)?.use {
         BitmapFactory.decodeStream(it, null, bounds)
     }
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxDimension) sample *= 2
-    val options = BitmapFactory.Options().apply { inSampleSize = sample }
-    val decoded = context.contentResolver.openInputStream(uri)?.use {
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = PhotoLoading.sampleSize(maxOf(bounds.outWidth, bounds.outHeight), maxDimension)
+    }
+    val decoded = resolver.openInputStream(uri)?.use {
         BitmapFactory.decodeStream(it, null, options)
     } ?: return null
-    val longest = maxOf(decoded.width, decoded.height)
-    if (longest <= maxDimension) return decoded
-    val scale = maxDimension.toFloat() / longest.toFloat()
-    return Bitmap.createScaledBitmap(
-        decoded,
-        (decoded.width * scale).toInt().coerceAtLeast(1),
-        (decoded.height * scale).toInt().coerceAtLeast(1),
-        true,
-    )
+    val orientation = runCatching {
+        resolver.openInputStream(uri)?.use {
+            ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, PhotoLoading.NORMAL)
+        }
+    }.getOrNull() ?: PhotoLoading.NORMAL
+    val fix = PhotoLoading.exifFix(orientation)
+    val scale = PhotoLoading.scaleFor(maxOf(decoded.width, decoded.height), maxDimension)
+    if (fix.isIdentity && scale == 1f) return decoded
+    // Escala, giro y espejo en una sola pasada.
+    val matrix = android.graphics.Matrix().apply {
+        setScale(scale, scale)
+        postRotate(fix.degrees)
+        if (fix.mirror) postScale(-1f, 1f)
+    }
+    return Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
 }
+
+/** Archivo temporal donde la app de camara deja la foto completa. */
+private fun cameraCaptureFile(context: Context): File =
+    File(context.cacheDir, "camera/capture.jpg").apply { parentFile?.mkdirs() }
+
+/** El archivo temporal compartido con la app de camara (FileProvider, solo esa Uri). */
+private fun cameraCaptureUri(context: Context): Uri = FileProvider.getUriForFile(
+    context, "${context.packageName}.fileprovider", cameraCaptureFile(context),
+)
 
 /** Miniatura de la lista a partir de la foto recien elegida. */
 private fun thumbnailOf(bitmap: Bitmap): Bitmap {

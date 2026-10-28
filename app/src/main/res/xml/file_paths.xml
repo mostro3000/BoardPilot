@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unica carpeta compartida: la foto completa que deja la app de camara antes
+     de reducirla y guardarla en el proyecto (se borra al cargarla). -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+</paths>
