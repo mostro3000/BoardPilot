@@ -13,7 +13,7 @@ Con --plan, despues del diagnostico simula que todas sus mediciones dieron
 normal y pide las siguientes con el mismo prompt que MetaSparkClient.planMeasurements.
 Con --probes pide donde van las puntas de las mediciones del diagnostico (mismo
 prompt que MetaSparkClient.probeGuides), las valida como la app y las dibuja en
-/tmp/boardpilot_probes.jpg.
+SMOKE_OUT/boardpilot_probes.jpg (por defecto /tmp).
 
 CANDIDATOS.json: [{"id","designator","kind","x","y","w","h"}] normalizado 0..1.
 La foto anotada queda en /tmp/boardpilot_annotated.jpg.
@@ -33,6 +33,8 @@ from PIL import Image, ImageDraw, ImageFont
 BASE = os.environ.get("META_API_BASE", "https://api.meta.ai/v1").rstrip("/")
 MODEL = os.environ.get("MUSE_SPARK_MODEL", "muse-spark-1.3")
 KEY = os.environ.get("MODEL_API_KEY", "")
+# Carpeta de las imagenes del smoke (anotada y puntas); /tmp por defecto.
+OUT_DIR = os.environ.get("SMOKE_OUT", "/tmp")
 KINDS = {"CONTINUITY", "RESISTANCE", "VOLTAGE_DC", "DIODE"}
 
 DAMAGE_PROMPT = """Look at this electronic board photo and scan the ENTIRE board for visible physical damage ONLY: burnt, charred or blackened components or PCB areas; bulging, leaking or exploded capacitors; cracked or melted parts; heavy corrosion or burnt traces.
@@ -114,7 +116,7 @@ def annotate(image_path: str, candidates: list[dict]) -> bytes:
         d.rectangle([x0, max(0, y0 - 16), x0 + 8 + 7 * len(label), y0],
                     fill=(255, 179, 0))
         d.text((x0 + 3, max(0, y0 - 13)), label, fill=(0, 0, 0))
-    im.save("/tmp/boardpilot_annotated.jpg", quality=88)
+    im.save(os.path.join(OUT_DIR, "boardpilot_annotated.jpg"), quality=88)
     buf = io.BytesIO()
     im.save(buf, format="JPEG", quality=88)
     return buf.getvalue()
@@ -361,8 +363,8 @@ def probe_step(image_path, clean_url, annotated_url, candidates, language, meas)
         color = (230, 30, 30) if probe == "red" else (15, 15, 15)
         d.ellipse([x * w - 6, y * h - 6, x * w + 6, y * h + 6], fill=color, outline=(255, 255, 255), width=2)
         d.text((x * w + 8, y * h - 7), terminal, fill=(255, 255, 255), font=font)
-    im.save("/tmp/boardpilot_probes.jpg", quality=90)
-    print("imagen: /tmp/boardpilot_probes.jpg")
+    im.save(os.path.join(OUT_DIR, "boardpilot_probes.jpg"), quality=90)
+    print("imagen:", os.path.join(OUT_DIR, "boardpilot_probes.jpg"))
     ok = (shown + hidden) > 0
     print("RESULTADO PUNTAS:", "OK" if ok else "revisar (arriba)")
     return ok
