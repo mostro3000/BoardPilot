@@ -22,6 +22,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,6 +85,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -86,9 +93,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -101,6 +115,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ar.com.mt0.boardpilot.api.MetaImageClient
@@ -121,7 +137,9 @@ import ar.com.mt0.boardpilot.domain.permissionGrant
 import ar.com.mt0.boardpilot.domain.DiagnosisEngine
 import ar.com.mt0.boardpilot.domain.DiagnosisSession
 import ar.com.mt0.boardpilot.domain.MeasurementOutcome
+import ar.com.mt0.boardpilot.domain.MapZoom
 import ar.com.mt0.boardpilot.domain.MeasurementResult
+import ar.com.mt0.boardpilot.domain.PhotoFraming
 import ar.com.mt0.boardpilot.domain.SamBox
 import ar.com.mt0.boardpilot.domain.SamOutputParser
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
@@ -154,6 +172,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private const val PREFS = "boardpilot_prefs"
 private const val PREF_API_KEY = "model_api_key"
@@ -361,6 +381,7 @@ fun BoardPilotApp(
     var referenceError by remember { mutableStateOf<String?>(null) }
     // Aviso de la tarjeta de foto (permiso de camara denegado, etc.).
     var photoNotice by remember { mutableStateOf<PhotoNotice?>(null) }
+    var croppingPhoto by rememberSaveable { mutableStateOf(false) }
     val photoScope = rememberCoroutineScope()
 
     LaunchedEffect(openProjectId) {
@@ -389,6 +410,7 @@ fun BoardPilotApp(
         mappingError = null
         referenceError = null
         photoNotice = null
+        croppingPhoto = false
         openProjectId = id
     }
 
@@ -492,6 +514,7 @@ fun BoardPilotApp(
     }
 
     fun removeBoardPhoto(id: String) {
+        croppingPhoto = false
         store.deleteBoardPhoto(id)
         thumbnails.remove(id)
         boardBitmap = null
@@ -883,15 +906,28 @@ fun BoardPilotApp(
             }
             Text(strings.safetyIntro)
             if (!project.started) {
-                PhotoCard(
-                    strings = strings,
-                    bitmap = boardBitmap,
-                    notice = photoNotice,
-                    onGallery = { photoNotice = null; galleryLauncher.launch("image/*") },
-                    onCamera = ::openCamera,
-                    onOpenSettings = ::openSettings,
-                    onRemove = { removeBoardPhoto(project.id) },
-                )
+                val photo = boardBitmap
+                if (croppingPhoto && photo != null) {
+                    PhotoCropper(
+                        strings, photo,
+                        onApply = { cropped ->
+                            setBoardPhoto(project.id, cropped)
+                            croppingPhoto = false
+                        },
+                        onCancel = { croppingPhoto = false },
+                    )
+                } else {
+                    PhotoCard(
+                        strings = strings,
+                        bitmap = boardBitmap,
+                        notice = photoNotice,
+                        onGallery = { photoNotice = null; galleryLauncher.launch("image/*") },
+                        onCamera = ::openCamera,
+                        onOpenSettings = ::openSettings,
+                        onRemove = { removeBoardPhoto(project.id) },
+                        onCrop = { croppingPhoto = true },
+                    )
+                }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1549,7 +1585,7 @@ private fun SessionContent(
     Text("${strings.symptomLabel}: ${session.symptom}")
     mappingError?.let { Text(it, color = Color(0xFFB00020)) }
     if (session.components.isNotEmpty()) {
-        BoardMap(session.components, selected, boardBitmap) { selectedId = it.id }
+        BoardMap(strings, session.components, selected, boardBitmap) { selectedId = it.id }
         selected?.let { comp ->
             Text("${comp.designator} · ${comp.kind}" +
                 (comp.visibleDamage?.let { " · ⚠ $it" } ?: ""))
@@ -1744,8 +1780,14 @@ private fun ReferenceCard(
     }
 }
 
+/**
+ * Mapa de la placa: foto con las cajas de componentes tocables. Se acerca
+ * pellizcando con dos dedos (foto y cajas juntas); con zoom, un dedo lo
+ * mueve y tocar una caja la sigue seleccionando.
+ */
 @Composable
 private fun BoardMap(
+    strings: AppStrings,
     components: List<BoardComponent>,
     selected: BoardComponent?,
     bitmap: Bitmap?,
@@ -1754,65 +1796,269 @@ private fun BoardMap(
     val ratio = bitmap?.let {
         (it.width.toFloat() / it.height.toFloat()).coerceIn(0.55f, 1.9f)
     }
+    var view by remember(bitmap) { mutableStateOf(MapZoom()) }
     BoxWithConstraints(
         Modifier.fillMaxWidth()
-            .background(Color(0xFF380B14), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF380B14))
             .then(
                 if (ratio != null) Modifier.aspectRatio(ratio)
                 else Modifier.height(240.dp),
-            ),
+            )
+            .pointerInput(bitmap) { detectMapPinch({ view }) { view = it } },
     ) {
         val w = maxWidth
         val h = maxHeight
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
         val accent = MaterialTheme.colorScheme.primary
         val selectedAccent = Color(0xFFFFB300)
-        components.forEach { comp ->
-            val isSel = comp.id == selected?.id
-            val compW = w * comp.box.w
-            val compH = h * comp.box.h
-            // Con dano visible el marco va en rojo de error; seleccionado pisa.
-            val frame = when {
-                isSel -> selectedAccent
-                comp.visibleDamage != null -> Color(0xFFB00020)
-                else -> accent
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                scaleX = view.zoom
+                scaleY = view.zoom
+                translationX = view.panX
+                translationY = view.panY
+            },
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
             }
-            Box(
-                Modifier
-                    .offset(x = w * comp.box.x, y = h * comp.box.y)
-                    .size(width = compW, height = compH)
-                    .background(
-                        frame.copy(alpha = if (isSel) 0.34f else 0.16f),
-                        RoundedCornerShape(3.dp),
-                    )
-                    .border(2.dp, frame, RoundedCornerShape(3.dp))
-                    .clickable { onSelect(comp) },
-            ) {
-                if (compW > 54.dp && compH > 26.dp) {
-                    Box(
-                        Modifier.align(Alignment.TopStart)
-                            .background(frame, RoundedCornerShape(3.dp))
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                    ) {
-                        Text(
-                            comp.designator,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSel) Color.Black else Color.White,
-                            maxLines = 1,
+            components.forEach { comp ->
+                val isSel = comp.id == selected?.id
+                val compW = w * comp.box.w
+                val compH = h * comp.box.h
+                // Con dano visible el marco va en rojo de error; seleccionado pisa.
+                val frame = when {
+                    isSel -> selectedAccent
+                    comp.visibleDamage != null -> Color(0xFFB00020)
+                    else -> accent
+                }
+                Box(
+                    Modifier
+                        .offset(x = w * comp.box.x, y = h * comp.box.y)
+                        .size(width = compW, height = compH)
+                        .background(
+                            frame.copy(alpha = if (isSel) 0.34f else 0.16f),
+                            RoundedCornerShape(3.dp),
                         )
+                        .border(2.dp, frame, RoundedCornerShape(3.dp))
+                        .clickable { onSelect(comp) },
+                ) {
+                    if (compW > 54.dp && compH > 26.dp) {
+                        Box(
+                            Modifier.align(Alignment.TopStart)
+                                .background(frame, RoundedCornerShape(3.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        ) {
+                            Text(
+                                comp.designator,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSel) Color.Black else Color.White,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
         }
+        if (view.zoomed) {
+            Text(
+                strings.mapFit,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                    .clickable { view = MapZoom() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
     }
+}
+
+/**
+ * Pellizco del mapa: dos dedos acercan y alejan; con zoom, un dedo mueve
+ * (pasado el umbral de arrastre, para no robarle el toque a las cajas). Sin
+ * zoom, un dedo sigue desplazando la pantalla como siempre.
+ */
+private suspend fun PointerInputScope.detectMapPinch(
+    current: () -> MapZoom,
+    onChange: (MapZoom) -> Unit,
+) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var dragged = Offset.Zero
+        var panning = false
+        do {
+            val event = awaitPointerEvent()
+            val fingers = event.changes.count { it.pressed }
+            val zoom = current()
+            if (fingers >= 2 || (fingers == 1 && zoom.zoomed)) {
+                val zoomChange = event.calculateZoom()
+                val pan = event.calculatePan()
+                if (!panning) {
+                    dragged += pan
+                    panning = fingers >= 2 || dragged.getDistance() > viewConfiguration.touchSlop
+                }
+                if (panning && (zoomChange != 1f || pan != Offset.Zero)) {
+                    val c = event.calculateCentroid(useCurrent = false)
+                    onChange(zoom.afterPinch(c.x, c.y, pan.x, pan.y, zoomChange,
+                        size.width.toFloat(), size.height.toFloat()))
+                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                }
+            }
+        } while (event.changes.any { it.pressed })
+    }
+}
+
+/**
+ * Encuadre de la foto antes de diagnosticar: dos dedos acercan, alejan y
+ * giran; un dedo mueve; el boton gira 90 grados exactos. Lo que queda dentro
+ * del marco pasa a ser la foto del proyecto (con la placa llenando el
+ * cuadro, SAM la segmenta mejor).
+ */
+@Composable
+private fun PhotoCropper(
+    strings: AppStrings,
+    source: Bitmap,
+    onApply: (Bitmap) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val image = remember(source) { source.asImageBitmap() }
+    var aspect by rememberSaveable {
+        mutableStateOf(if (source.height >= source.width) 0.75f else 4f / 3f)
+    }
+    var scale by rememberSaveable { mutableStateOf(1f) }
+    var rotation by rememberSaveable { mutableStateOf(0f) }
+    var offsetX by rememberSaveable { mutableStateOf(0f) }
+    var offsetY by rememberSaveable { mutableStateOf(0f) }
+    var frame by remember { mutableStateOf(IntSize.Zero) }
+    fun framing() = PhotoFraming(scale, rotation, offsetX, offsetY)
+    fun set(f: PhotoFraming) {
+        scale = f.scale
+        rotation = f.rotation
+        offsetX = f.offsetX
+        offsetY = f.offsetY
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(strings.cropTitle, fontWeight = FontWeight.Bold)
+            Text(strings.cropHint, fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier.fillMaxWidth()
+                    .aspectRatio(aspect)
+                    .clipToBounds()
+                    .background(Color(0xFF15080B))
+                    .onSizeChanged { frame = it }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { centroid, pan, zoom, turn ->
+                            set(framing().afterGesture(centroid.x, centroid.y, pan.x, pan.y,
+                                zoom, turn, frame.width.toFloat(), frame.height.toFloat()))
+                        }
+                    },
+            ) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val fit = max(size.width / image.width, size.height / image.height)
+                    withTransform({
+                        translate(size.width / 2f + offsetX, size.height / 2f + offsetY)
+                        rotate(rotation, Offset.Zero)
+                        scale(fit * scale, fit * scale, Offset.Zero)
+                    }) {
+                        drawImage(
+                            image,
+                            dstOffset = IntOffset(-image.width / 2, -image.height / 2),
+                            dstSize = IntSize(image.width, image.height),
+                            filterQuality = FilterQuality.High,
+                        )
+                    }
+                    // Reticula de tercios para alinear la placa.
+                    val grid = Color.White.copy(alpha = 0.35f)
+                    for (k in 1..2) {
+                        drawLine(grid, Offset(size.width * k / 3f, 0f),
+                            Offset(size.width * k / 3f, size.height), 1.dp.toPx())
+                        drawLine(grid, Offset(0f, size.height * k / 3f),
+                            Offset(size.width, size.height * k / 3f), 1.dp.toPx())
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("3:4" to 0.75f, "1:1" to 1f, "4:3" to 4f / 3f).forEach { (label, value) ->
+                    val chipModifier = Modifier.weight(1f)
+                    val chipPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                    if (value == aspect) {
+                        Button(onClick = { aspect = value }, modifier = chipModifier,
+                            contentPadding = chipPadding) { Text(label, maxLines = 1) }
+                    } else {
+                        OutlinedButton(onClick = { aspect = value }, modifier = chipModifier,
+                            contentPadding = chipPadding) { Text(label, maxLines = 1) }
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        // Girada, una foto apaisada ya no llena el marco: se agranda lo justo.
+                        val turned = framing().turned90()
+                        val cover = turned.coverScale(source.width.toFloat(), source.height.toFloat(),
+                            frame.width.toFloat(), frame.height.toFloat())
+                        set(turned.copy(scale = max(turned.scale, cover)))
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                ) { Text(strings.cropRotate, maxLines = 1) }
+            }
+            Button(
+                onClick = {
+                    if (frame.width > 0 && frame.height > 0) {
+                        onApply(renderCrop(source, frame, framing()))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(strings.cropApply) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { set(PhotoFraming()) }, modifier = Modifier.weight(1f)) {
+                    Text(strings.cropReset, maxLines = 1)
+                }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
+                    Text(strings.cropCancel, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Lo que se ve en el marco, como foto nueva: a la resolucion de la original
+ * (sin inventar detalle) con el lado mayor entre 480 y 1600 px. Lo que quede
+ * fuera de la foto sale en el fondo oscuro del marco.
+ */
+private fun renderCrop(source: Bitmap, frame: IntSize, framing: PhotoFraming): Bitmap {
+    val fw = frame.width.toFloat()
+    val fh = frame.height.toFloat()
+    val longest = max(fw, fh)
+    val fit = max(fw / source.width, fh / source.height)
+    val k = (1f / (fit * framing.scale)).coerceIn(480f / longest, 1600f / longest)
+    val out = Bitmap.createBitmap(
+        (fw * k).roundToInt().coerceAtLeast(1),
+        (fh * k).roundToInt().coerceAtLeast(1),
+        Bitmap.Config.ARGB_8888,
+    )
+    val canvas = android.graphics.Canvas(out)
+    canvas.drawColor(0xFF15080B.toInt())
+    val matrix = android.graphics.Matrix().apply {
+        postTranslate(-source.width / 2f, -source.height / 2f)
+        postScale(fit * framing.scale, fit * framing.scale)
+        postRotate(framing.rotation)
+        postTranslate(fw / 2f + framing.offsetX, fh / 2f + framing.offsetY)
+        postScale(k, k)
+    }
+    canvas.drawBitmap(source, matrix, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+    return out
 }
 
 @Composable
@@ -1824,6 +2070,7 @@ private fun PhotoCard(
     onCamera: () -> Unit,
     onOpenSettings: () -> Unit,
     onRemove: () -> Unit,
+    onCrop: () -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1864,6 +2111,9 @@ private fun PhotoCard(
                 }
             }
             if (bitmap != null) {
+                OutlinedButton(onClick = onCrop, modifier = Modifier.fillMaxWidth()) {
+                    Text(strings.photoCrop)
+                }
                 OutlinedButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
                     Text(strings.photoRemove)
                 }

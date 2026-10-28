@@ -98,6 +98,14 @@ interface AppStrings {
     val photoGallery: String
     val photoCamera: String
     val photoRemove: String
+    val photoCrop: String
+    val cropTitle: String
+    val cropHint: String
+    val cropRotate: String
+    val cropReset: String
+    val cropApply: String
+    val cropCancel: String
+    val mapFit: String
     val photoNone: String
     val photoReady: String
     val mapLiveSam: String
@@ -233,6 +241,14 @@ object EsStrings : AppStrings {
     override val photoGallery = "Galería"
     override val photoCamera = "Cámara"
     override val photoRemove = "Quitar foto"
+    override val photoCrop = "Recortar / girar"
+    override val cropTitle = "Encuadrá la placa"
+    override val cropHint = "Dos dedos: acercar, alejar y girar. Un dedo: mover. Que la placa llene el cuadro."
+    override val cropRotate = "↻ 90°"
+    override val cropReset = "Restablecer"
+    override val cropApply = "Aplicar recorte"
+    override val cropCancel = "Cancelar"
+    override val mapFit = "Ver completo"
     override val photoNone = "Sin foto: se usa el esquema del demo."
     override val photoReady = "Foto lista"
     override val mapLiveSam = "Mapear con SAM 3.1 en vivo"
@@ -394,6 +410,14 @@ object EnStrings : AppStrings {
     override val photoGallery = "Gallery"
     override val photoCamera = "Camera"
     override val photoRemove = "Remove photo"
+    override val photoCrop = "Crop / rotate"
+    override val cropTitle = "Frame the board"
+    override val cropHint = "Two fingers: zoom and rotate. One finger: move. Let the board fill the frame."
+    override val cropRotate = "↻ 90°"
+    override val cropReset = "Reset"
+    override val cropApply = "Apply crop"
+    override val cropCancel = "Cancel"
+    override val mapFit = "Fit view"
     override val photoNone = "No photo: the demo schematic will be used."
     override val photoReady = "Photo ready"
     override val mapLiveSam = "Map with live SAM 3.1"
