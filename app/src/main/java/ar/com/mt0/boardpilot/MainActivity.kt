@@ -1770,13 +1770,36 @@ private fun SessionContent(
                 session.stage == Stage.VERIFIED -> session.verdictComponentId to strings.mapVerdictTag
             else -> null to null
         }
+        // Placas densas: solo las cajas principales (en juego, danadas y las mas
+        // grandes), con un boton para ver todas.
+        var showAllBoxes by rememberSaveable { mutableStateOf(false) }
+        val inPlay = buildSet {
+            session.hypotheses.forEach { add(it.componentId) }
+            session.pendingRequests.forEach { request ->
+                add(request.componentId)
+                request.probes?.points?.forEach { add(it.componentId) }
+            }
+            session.results.forEach { add(it.componentId) }
+            session.verdictComponentId?.let(::add)
+            selectedId?.let(::add)
+        }
         BoardMap(
-            strings, session.components, selected, boardBitmap,
+            strings,
+            if (showAllBoxes) session.components else BoardView.mapComponents(session.components, inPlay),
+            selected, boardBitmap,
             focusId = focusId,
             focusLabel = focusLabel,
             evidence = BoardView.measuredEvidence(session.results),
             shares = if (measuringStage) BoardView.hypothesisShares(session.hypotheses) else emptyMap(),
         ) { selectedId = it.id }
+        if (session.components.size > BoardView.MAP_LIMIT) {
+            TextButton(onClick = { showAllBoxes = !showAllBoxes }) {
+                Text(
+                    if (showAllBoxes) strings.mapMainOnly(BoardView.MAP_LIMIT)
+                    else strings.mapShowAll(session.components.size),
+                )
+            }
+        }
         selected?.let { comp ->
             Text("${comp.designator} · ${comp.kind}" +
                 (comp.visibleDamage?.let { " · ⚠ $it" } ?: ""))

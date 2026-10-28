@@ -150,7 +150,8 @@ Model-output validation (strict JSON, grounded ids)                 Muse Image 1
   validation), `SessionCodec` / `RepairProject` (persistence), `PhotoGestures` /
   `PhotoLoading` (crop, rotation, EXIF, sampling).
 - `app/src/main/java/ar/com/mt0/boardpilot/api/` — `MetaSamClient`, `MetaSparkClient`,
-  `MetaImageClient` (plain HTTPS, no SDK).
+  `MetaImageClient` (plain HTTPS, no SDK; transient 429/5xx and network errors are
+  retried with backoff, `MetaApiRetry`).
 - `app/src/main/java/ar/com/mt0/boardpilot/MainActivity.kt` — Jetpack Compose UI.
 - `tools/` — Python smoke tests for each model.
 

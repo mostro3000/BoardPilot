@@ -148,7 +148,8 @@ Proyectos "Mis reparaciones" guardados localmente · demo offline
   (validación de respuestas), `SessionCodec` / `RepairProject` (persistencia),
   `PhotoGestures` / `PhotoLoading` (recorte, giro, EXIF, muestreo).
 - `app/src/main/java/ar/com/mt0/boardpilot/api/` — `MetaSamClient`, `MetaSparkClient`,
-  `MetaImageClient` (HTTPS directo, sin SDK).
+  `MetaImageClient` (HTTPS directo, sin SDK; los errores pasajeros 429/5xx y de red se
+  reintentan con espera creciente, `MetaApiRetry`).
 - `app/src/main/java/ar/com/mt0/boardpilot/MainActivity.kt` — interfaz en Jetpack Compose.
 - `tools/` — smoke tests en Python para cada modelo.
 

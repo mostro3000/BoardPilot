@@ -46,44 +46,47 @@ class MetaSamClient(
                         }))
                 }))
             }
-            val connection = (URL("$baseUrl/responses").openConnection()
-                as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 30_000
-                readTimeout = 180_000
-                doOutput = true
-                setRequestProperty("Authorization", "Bearer $apiKey")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "text/event-stream")
-            }
-            try {
-                connection.outputStream.use { it.write(body.toString().toByteArray()) }
-                val code = connection.responseCode
-                if (code !in 200..299) {
-                    val detail = connection.errorStream?.bufferedReader()
-                        ?.readText()?.take(300).orEmpty()
-                    throw IllegalStateException("Meta API HTTP $code: $detail")
+            // Fallas pasajeras (429, 5xx, red) se reintentan: visto un 503 de SAM.
+            MetaApiRetry.run {
+                val connection = (URL("$baseUrl/responses").openConnection()
+                    as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 30_000
+                    readTimeout = 180_000
+                    doOutput = true
+                    setRequestProperty("Authorization", "Bearer $apiKey")
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "text/event-stream")
                 }
-                val outputText = StringBuilder()
-                connection.inputStream.bufferedReader().useLines { lines ->
-                    for (line in lines) {
-                        if (!line.startsWith("data:")) continue
-                        val data = line.removePrefix("data:").trim()
-                        if (data == "[DONE]") break
-                        val event = runCatching { JSONObject(data) }.getOrNull()
-                            ?: continue
-                        when (event.optString("type")) {
-                            "response.output_text.delta" ->
-                                outputText.append(event.optString("delta"))
-                            "error" -> throw IllegalStateException(
-                                "Meta API: ${event.optString("message").take(300)}",
-                            )
+                try {
+                    connection.outputStream.use { it.write(body.toString().toByteArray()) }
+                    val code = connection.responseCode
+                    if (code !in 200..299) {
+                        val detail = connection.errorStream?.bufferedReader()
+                            ?.readText()?.take(300).orEmpty()
+                        throw MetaApiException(code, "Meta API HTTP $code: $detail")
+                    }
+                    val outputText = StringBuilder()
+                    connection.inputStream.bufferedReader().useLines { lines ->
+                        for (line in lines) {
+                            if (!line.startsWith("data:")) continue
+                            val data = line.removePrefix("data:").trim()
+                            if (data == "[DONE]") break
+                            val event = runCatching { JSONObject(data) }.getOrNull()
+                                ?: continue
+                            when (event.optString("type")) {
+                                "response.output_text.delta" ->
+                                    outputText.append(event.optString("delta"))
+                                "error" -> throw IllegalStateException(
+                                    "Meta API: ${event.optString("message").take(300)}",
+                                )
+                            }
                         }
                     }
+                    SamOutputParser.parse(outputText.toString())
+                } finally {
+                    connection.disconnect()
                 }
-                SamOutputParser.parse(outputText.toString())
-            } finally {
-                connection.disconnect()
             }
         }
 

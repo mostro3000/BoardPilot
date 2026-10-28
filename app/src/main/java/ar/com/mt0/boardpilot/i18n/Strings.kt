@@ -192,6 +192,8 @@ interface AppStrings {
     val diodeBothWays: String
     val mapMeasureTag: String
     val mapVerdictTag: String
+    fun mapShowAll(total: Int): String
+    fun mapMainOnly(count: Int): String
 }
 
 fun appStrings(language: AppLanguage): AppStrings = when (language) {
@@ -393,6 +395,8 @@ object EsStrings : AppStrings {
     override val diodeBothWays = "Si no ves la marca de polaridad, probá en los dos sentidos: en uno marca la caída (≈0,5–0,7 V; un LED ≈1–2 V) y en el otro OL."
     override val mapMeasureTag = "medir"
     override val mapVerdictTag = "veredicto"
+    override fun mapShowAll(total: Int) = "Ver las $total cajas"
+    override fun mapMainOnly(count: Int) = "Ver solo las $count principales"
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No queda ninguna medición pendiente."
@@ -595,6 +599,8 @@ object EnStrings : AppStrings {
     override val diodeBothWays = "If you can't see the polarity mark, try both ways: one shows the drop (≈0.5–0.7 V; an LED ≈1–2 V) and the other OL."
     override val mapMeasureTag = "measure"
     override val mapVerdictTag = "verdict"
+    override fun mapShowAll(total: Int) = "Show all $total boxes"
+    override fun mapMainOnly(count: Int) = "Show only the $count main ones"
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No measurement is pending."

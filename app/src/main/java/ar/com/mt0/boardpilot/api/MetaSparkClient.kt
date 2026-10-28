@@ -268,8 +268,12 @@ class MetaSparkClient(
         }
     }
 
-    /** POST /chat/completions y devuelve el contenido del asistente. */
-    private fun chat(body: JSONObject): String {
+    /**
+     * POST /chat/completions y devuelve el contenido del asistente. Fallas
+     * pasajeras (429, 5xx, red) se reintentan; una respuesta vacia por falta de
+     * tokens no (fallaria igual).
+     */
+    private fun chat(body: JSONObject): String = MetaApiRetry.run {
         val connection = (URL("$baseUrl/chat/completions").openConnection()
             as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -285,7 +289,7 @@ class MetaSparkClient(
             if (code !in 200..299) {
                 val detail = connection.errorStream?.bufferedReader()
                     ?.readText()?.take(300).orEmpty()
-                throw IllegalStateException("Meta API HTTP $code: $detail")
+                throw MetaApiException(code, "Meta API HTTP $code: $detail")
             }
             val payload = connection.inputStream.bufferedReader().readText()
             val root = JSONObject(payload)
@@ -298,7 +302,7 @@ class MetaSparkClient(
                         choice.optString("finish_reason") + ")",
                 )
             }
-            return content
+            content
         } finally {
             connection.disconnect()
         }

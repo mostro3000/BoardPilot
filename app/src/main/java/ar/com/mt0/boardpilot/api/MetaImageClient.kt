@@ -58,40 +58,42 @@ class MetaImageClient(
                     }))
             }))
         }
-        val connection = (URL("$baseUrl/responses").openConnection()
-            as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 30_000
-            readTimeout = 300_000
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer $apiKey")
-            setRequestProperty("Content-Type", "application/json")
-        }
-        try {
-            connection.outputStream.use { it.write(body.toString().toByteArray()) }
-            val code = connection.responseCode
-            if (code !in 200..299) {
-                val detail = connection.errorStream?.bufferedReader()
-                    ?.readText()?.take(300).orEmpty()
-                throw IllegalStateException("Meta API HTTP $code: $detail")
+        // Fallas pasajeras (429, 5xx, red) se reintentan.
+        MetaApiRetry.run {
+            val connection = (URL("$baseUrl/responses").openConnection()
+                as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 30_000
+                readTimeout = 300_000
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $apiKey")
+                setRequestProperty("Content-Type", "application/json")
             }
-            val root = JSONObject(connection.inputStream.bufferedReader().readText())
-            val output = root.optJSONArray("output")
-                ?: throw IllegalStateException("Meta API: sin output")
-            for (i in 0 until output.length()) {
-                val item = output.optJSONObject(i) ?: continue
-                if (item.optString("type") == "image_generation_call") {
-                    val result = item.optString("result")
-                    if (result.isNotBlank()) {
-                        val bytes = Base64.decode(result, Base64.DEFAULT)
-                        return@withContext BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            ?: throw IllegalStateException("Meta API: imagen no decodificable")
-                    }
+            try {
+                connection.outputStream.use { it.write(body.toString().toByteArray()) }
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    val detail = connection.errorStream?.bufferedReader()
+                        ?.readText()?.take(300).orEmpty()
+                    throw MetaApiException(code, "Meta API HTTP $code: $detail")
                 }
+                val root = JSONObject(connection.inputStream.bufferedReader().readText())
+                val output = root.optJSONArray("output")
+                    ?: throw IllegalStateException("Meta API: sin output")
+                val result = (0 until output.length())
+                    .mapNotNull { output.optJSONObject(it) }
+                    .firstOrNull {
+                        it.optString("type") == "image_generation_call" &&
+                            it.optString("result").isNotBlank()
+                    }
+                    ?.optString("result")
+                    ?: throw IllegalStateException("Meta API: sin imagen generada")
+                val bytes = Base64.decode(result, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: throw IllegalStateException("Meta API: imagen no decodificable")
+            } finally {
+                connection.disconnect()
             }
-            throw IllegalStateException("Meta API: sin imagen generada")
-        } finally {
-            connection.disconnect()
         }
     }
 

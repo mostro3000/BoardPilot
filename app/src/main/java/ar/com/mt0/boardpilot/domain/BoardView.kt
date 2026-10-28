@@ -68,6 +68,20 @@ object BoardView {
         )
     }
 
+    /** Cajas del mapa sin "ver todas": en placas densas SAM devuelve cientos (visto: 116). */
+    const val MAP_LIMIT = 40
+
+    /**
+     * Las cajas principales del mapa: las que estan en juego ([inPlay]: hipotesis,
+     * mediciones, lo medido, el veredicto, la seleccionada), las danadas y las mas
+     * grandes, con el mismo criterio que lo que se manda a Muse Spark.
+     */
+    fun mapComponents(
+        components: List<BoardComponent>,
+        inPlay: Set<String>,
+        limit: Int = MAP_LIMIT,
+    ): List<BoardComponent> = SparkCandidates.select(components, inPlay, limit)
+
     /** Lo medido sobre cada componente: anormal pesa mas que no claro, y este mas que normal. */
     fun measuredEvidence(results: List<MeasurementResult>): Map<String, MeasurementOutcome> =
         results.filter { it.componentId.isNotBlank() }

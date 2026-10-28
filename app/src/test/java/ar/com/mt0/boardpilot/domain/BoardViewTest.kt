@@ -52,6 +52,20 @@ class BoardViewTest {
     }
 
     @Test
+    fun `en placas densas el mapa muestra las cajas principales`() {
+        // Visto con una fuente de PC: 116 cajas tapaban la placa.
+        val dense = List(116) {
+            BoardComponent("cyl$it-sam$it", "CYL $it", ComponentKind.OTHER,
+                NormBox(0.005f * (it % 100), 0.005f * (it % 100), 0.01f + it * 0.0001f, 0.02f))
+        }
+        val shown = BoardView.mapComponents(dense, inPlay = setOf("cyl0-sam0", "cyl1-sam1"))
+        assertEquals(BoardView.MAP_LIMIT, shown.size)
+        // Lo que esta en juego se ve aunque sea chico; con pocas cajas se ven todas.
+        assertTrue(shown.any { it.id == "cyl0-sam0" } && shown.any { it.id == "cyl1-sam1" })
+        assertEquals(dense.take(20), BoardView.mapComponents(dense.take(20), emptySet()))
+    }
+
+    @Test
     fun `evidencia por componente y porcentaje de su hipotesis`() {
         val results = listOf(
             MeasurementResult("m1", MeasurementOutcome.NORMAL, componentId = "f1"),
