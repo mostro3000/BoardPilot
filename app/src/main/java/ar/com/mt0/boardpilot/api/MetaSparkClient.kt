@@ -10,6 +10,7 @@ import ar.com.mt0.boardpilot.domain.Hypothesis
 import ar.com.mt0.boardpilot.domain.MeasurementRequest
 import ar.com.mt0.boardpilot.domain.MeasurementResult
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
+import ar.com.mt0.boardpilot.domain.SparkCandidates
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import kotlinx.coroutines.Dispatchers
@@ -81,10 +82,12 @@ class MetaSparkClient(
         language: AppLanguage,
         damageFindings: List<DamageFinding> = emptyList(),
     ): String = withContext(Dispatchers.IO) {
-        val annotated = annotate(bitmap, components)
+        // Placas densas: como mucho SparkCandidates.MAX (si no, el modelo no llega a responder).
+        val shown = SparkCandidates.select(components)
+        val annotated = annotate(bitmap, shown)
         val cleanUrl = "data:image/jpeg;base64," + encodeJpeg(bitmap)
         val imageUrl = "data:image/jpeg;base64," + encodeJpeg(annotated)
-        val candidatesJson = candidatesJson(components)
+        val candidatesJson = candidatesJson(shown)
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
         val prescan = if (damageFindings.isEmpty()) {
             ""
@@ -161,12 +164,13 @@ class MetaSparkClient(
             }
         }
         val userText = "Symptom: $symptom\n" +
-            "Candidate components:\n" + candidatesJson(components) + "\n" +
-            "Current hypotheses:\n" + hypothesesJson + "\n" +
+            "Candidate components:\n" +
+            candidatesJson(SparkCandidates.select(components, hypotheses.map { it.componentId }.toSet())) +
+            "\nCurrent hypotheses:\n" + hypothesesJson + "\n" +
             "Measurements already done:\n" + doneJson
         val body = JSONObject().apply {
             put("model", "muse-spark-1.3")
-            put("max_tokens", 8000)
+            put("max_tokens", 12000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)
             put("messages", JSONArray()
@@ -213,12 +217,13 @@ class MetaSparkClient(
                 })
             }
         }
-        val userText = "Candidate components:\n" + candidatesJson(components) + "\n" +
+        val shown = SparkCandidates.select(components, requests.map { it.componentId }.toSet())
+        val userText = "Candidate components:\n" + candidatesJson(shown) + "\n" +
             "Measurements:\n" + measurementsJson
-        val annotated = annotate(bitmap, components)
+        val annotated = annotate(bitmap, shown)
         val body = JSONObject().apply {
             put("model", "muse-spark-1.3")
-            put("max_tokens", 8000)
+            put("max_tokens", 12000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)
             put("messages", JSONArray()
@@ -384,6 +389,7 @@ Rules:
 - componentId is the candidate "id" exactly as in the list of the part that probe touches: usually the measured component, or another candidate when the probe goes to a reference point such as the negative of the bulk capacitor (primary ground).
 - terminal names that point briefly (anode, cathode, +, -, pin 1, drain, ground...). If you cannot see the polarity or pin-1 mark in the photo, append "?" to the terminal name.
 - Respect polarity: DIODE red on anode and black on cathode; VOLTAGE_DC red on + and black on - (ground).
+- For parts with more than two terminals (transistors, MOSFETs, ICs, optocouplers, bridges) give points only when the photo shows which pins they are (silkscreen, pin-1 mark, package orientation) and name them by function (drain, source, gate, pin 1, +, -, ~); otherwise set visible to false and say in note how to identify the pins (the pinout of the part number printed on it).
 - If the terminals to touch are not visible in this photo (leads hidden under the body or only reachable on the solder side), set visible to false, omit red and black, and say in note where to touch instead.
 - terminal and note in LANGUAGE. Never put ids in them: name components by their designator."""
     }

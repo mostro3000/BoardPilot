@@ -99,8 +99,19 @@ Rules:
 - componentId is the candidate "id" exactly as in the list of the part that probe touches: usually the measured component, or another candidate when the probe goes to a reference point such as the negative of the bulk capacitor (primary ground).
 - terminal names that point briefly (anode, cathode, +, -, pin 1, drain, ground...). If you cannot see the polarity or pin-1 mark in the photo, append "?" to the terminal name.
 - Respect polarity: DIODE red on anode and black on cathode; VOLTAGE_DC red on + and black on - (ground).
+- For parts with more than two terminals (transistors, MOSFETs, ICs, optocouplers, bridges) give points only when the photo shows which pins they are (silkscreen, pin-1 mark, package orientation) and name them by function (drain, source, gate, pin 1, +, -, ~); otherwise set visible to false and say in note how to identify the pins (the pinout of the part number printed on it).
 - If the terminals to touch are not visible in this photo (leads hidden under the body or only reachable on the solder side), set visible to false, omit red and black, and say in note where to touch instead.
 - terminal and note in LANGUAGE. Never put ids in them: name components by their designator."""
+
+
+def select_candidates(candidates: list, must: set = frozenset(), max_n: int = 60) -> list:
+    """Como SparkCandidates.select: en juego, con dano y los mas grandes, en el orden original."""
+    if len(candidates) <= max_n:
+        return candidates
+    ranked = sorted(candidates, key=lambda c: (c["id"] in must, bool(c.get("visibleDamage")),
+                                               c["w"] * c["h"]), reverse=True)
+    keep = {c["id"] for c in ranked[:max_n]}
+    return [c for c in candidates if c["id"] in keep]
 
 
 def annotate(image_path: str, candidates: list[dict]) -> bytes:
@@ -204,7 +215,10 @@ def main() -> int:
     print("dano asignado:", summary)
 
     # 2) Diagnostico con foto limpia + anotada (ya incluye los DMG)
-    jpeg = annotate(image_path, candidates)
+    shown = select_candidates(candidates)
+    if len(shown) < len(candidates):
+        print(f"candidatos para Spark: {len(shown)} de {len(candidates)} (tope como la app)")
+    jpeg = annotate(image_path, shown)
     data_url = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
     prescan = ("\nVisible damage found by a dedicated pre-scan (already included "
                "as candidates with visibleDamage): " + "; ".join(summary) + "\n"
@@ -212,7 +226,7 @@ def main() -> int:
     user_text = (
         f"Symptom: {symptom}\n{prescan}"
         f"Candidate components from segmentation (kind is a rough visual guess):\n"
-        f"{json.dumps(candidates, ensure_ascii=False)}"
+        f"{json.dumps(shown, ensure_ascii=False)}"
     )
     body = {
         "model": MODEL,
@@ -288,11 +302,13 @@ def probe_step(image_path, clean_url, annotated_url, candidates, language, meas)
     """Donde van las puntas; validacion como SparkOutputParser.parseProbes."""
     measurements = [{"id": m.get("id"), "componentId": m.get("componentId"), "kind": m.get("kind"),
                      "instruction": m.get("instruction")} for m in meas]
-    user_text = (f"Candidate components:\n{json.dumps(candidates, ensure_ascii=False)}\n"
+    shown = select_candidates(candidates, {m.get("componentId") for m in meas})
+    annotated_url = "data:image/jpeg;base64," + base64.b64encode(annotate(image_path, shown)).decode("ascii")
+    user_text = (f"Candidate components:\n{json.dumps(shown, ensure_ascii=False)}\n"
                  f"Measurements:\n{json.dumps(measurements, ensure_ascii=False)}")
     body = {
         "model": MODEL,
-        "max_tokens": 8000,
+        "max_tokens": 12000,
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": PROBE.replace("LANGUAGE", language)},
@@ -306,7 +322,13 @@ def probe_step(image_path, clean_url, annotated_url, candidates, language, meas)
     print("puntas de las mediciones...")
     content, usage = chat(body)
     print("usage puntas:", json.dumps(usage))
-    probes = parse_obj(content).get("probes") or []
+    try:
+        probes = parse_obj(content).get("probes") or []
+    except ValueError:
+        # Como la app: sin puntas sugeridas (alli queda el boton para reintentar).
+        print(f"RESPUESTA VACIA O INVALIDA en puntas ({len(content)} caracteres)")
+        print("RESULTADO PUNTAS: revisar (arriba)")
+        return False
     boxes = {c["id"]: c for c in candidates}
     by_designator = {c["designator"].replace(" ", "").lower(): c["id"] for c in candidates}
     by_meas = {m.get("id"): m for m in meas}
@@ -376,12 +398,13 @@ def plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) -
              "result": "NORMAL"} for m in meas]
     hyp_list = [{"id": h.get("id"), "title": h.get("title"), "componentId": h.get("componentId"),
                  "confidence": h.get("confidence"), "confirmedByMeasurement": False} for h in hyps]
-    user_text = (f"Symptom: {symptom}\nCandidate components:\n{json.dumps(candidates, ensure_ascii=False)}\n"
+    shown = select_candidates(candidates, {h.get("componentId") for h in hyps})
+    user_text = (f"Symptom: {symptom}\nCandidate components:\n{json.dumps(shown, ensure_ascii=False)}\n"
                  f"Current hypotheses:\n{json.dumps(hyp_list, ensure_ascii=False)}\n"
                  f"Measurements already done:\n{json.dumps(done, ensure_ascii=False)}")
     body = {
         "model": MODEL,
-        "max_tokens": 8000,
+        "max_tokens": 12000,
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": PLAN.replace("LANGUAGE", language)},
