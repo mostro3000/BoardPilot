@@ -28,17 +28,11 @@ BOX_RE = re.compile(
 )
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
-        print("Uso: smoke_sam.py IMAGEN CONCEPTO")
-        return 2
-    if not KEY:
-        print("ERROR: falta MODEL_API_KEY en el entorno.")
-        return 2
-    image_path, concept = sys.argv[1], sys.argv[2]
-    mime = mimetypes.guess_type(image_path)[0] or "image/png"
-    encoded = base64.b64encode(open(image_path, "rb").read()).decode("ascii")
+def segment(image: bytes, mime: str, concept: str) -> list:
+    """Cajas de SAM 3.1 para un concepto: (id, x1, y1, x2, y2, confianza), normalizadas 0..1.
 
+    La confianza es None si SAM no la manda. Un evento de error del API levanta RuntimeError.
+    """
     body = {
         "model": "sam-3.1",
         "stream": True,
@@ -49,7 +43,7 @@ def main() -> int:
             "content": [
                 {"type": "input_text", "text": concept},
                 {"type": "input_image",
-                 "image_url": f"data:{mime};base64,{encoded}"},
+                 "image_url": f"data:{mime};base64,{base64.b64encode(image).decode('ascii')}"},
             ],
         }],
     }
@@ -63,10 +57,8 @@ def main() -> int:
             "Accept": "text/event-stream",
         },
     )
-    print(f"POST {BASE}/responses model=sam-3.1 concepto={concept!r} imagen={image_path}")
     output_text = []
     with urllib.request.urlopen(req, timeout=180) as resp:
-        print("status:", resp.status)
         for raw in resp:
             line = raw.decode("utf-8", errors="replace").strip()
             if not line.startswith("data:"):
@@ -81,19 +73,37 @@ def main() -> int:
             if event.get("type") == "response.output_text.delta" and event.get("delta"):
                 output_text.append(event["delta"])
             elif event.get("type") == "error":
-                print("ERROR del API:", json.dumps(event)[:400])
-                return 1
-    text = "".join(output_text)
-    boxes = list(BOX_RE.finditer(text))
-    print(f"salida: {len(text)} caracteres, {len(boxes)} caja(s)")
-    for b in boxes:
+                raise RuntimeError("SAM: " + json.dumps(event)[:400])
+    boxes = []
+    for b in BOX_RE.finditer("".join(output_text)):
         oid, x1, y1, x2, y2, w, h, conf = b.groups()
         w_i, h_i = int(w), int(h)
-        print(
-            f"  id={oid} box=({x1},{y1})-({x2},{y2}) frame={w}x{h} "
-            f"norm=({float(x1)/w_i:.3f},{float(y1)/h_i:.3f})-"
-            f"({float(x2)/w_i:.3f},{float(y2)/h_i:.3f}) conf={conf or '-'}"
-        )
+        if w_i <= 0 or h_i <= 0:
+            continue
+        boxes.append((int(oid), float(x1) / w_i, float(y1) / h_i, float(x2) / w_i,
+                      float(y2) / h_i, float(conf) if conf else None))
+    return boxes
+
+
+def main() -> int:
+    if len(sys.argv) != 3:
+        print("Uso: smoke_sam.py IMAGEN CONCEPTO")
+        return 2
+    if not KEY:
+        print("ERROR: falta MODEL_API_KEY en el entorno.")
+        return 2
+    image_path, concept = sys.argv[1], sys.argv[2]
+    mime = mimetypes.guess_type(image_path)[0] or "image/png"
+    print(f"POST {BASE}/responses model=sam-3.1 concepto={concept!r} imagen={image_path}")
+    try:
+        boxes = segment(open(image_path, "rb").read(), mime, concept)
+    except RuntimeError as exc:
+        print("ERROR del API:", exc)
+        return 1
+    print(f"{len(boxes)} caja(s)")
+    for oid, x1, y1, x2, y2, conf in boxes:
+        print(f"  id={oid} norm=({x1:.3f},{y1:.3f})-({x2:.3f},{y2:.3f}) "
+              f"conf={conf if conf is not None else '-'}")
     print("RESULTADO:", "OK" if boxes else "sin coincidencias (respuesta valida)")
     return 0
 

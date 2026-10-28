@@ -2805,6 +2805,7 @@ private fun PhotoCard(
  * los terminos tecnicos (transformer, optocoupler, transistor) devolvieron
  * cero; los descriptores VISUALES si. SAM aporta candidatos por forma y la
  * clasificacion fina queda para Muse Spark sobre la foto anotada.
+ * Mismos conceptos y orden que tools/smoke_map.py (mantener en sync).
  */
 private val SAM_CONCEPTS = listOf(
     Triple("yellow rectangular block", ComponentKind.TRANSFORMER, "TRF"),
@@ -2844,7 +2845,6 @@ private suspend fun segmentBoardComponents(
     }
 }
 
-/** Decodifica una Uri de galeria reducida a [maxDimension] px como maximo. */
 /**
  * Foto de galeria o camara lista para el diagnostico: derecha segun su EXIF
  * (la camara suele guardar los pixeles acostados con la etiqueta Orientation)

@@ -128,6 +128,7 @@ Smoke tests contra la Meta Model API (leen la clave solo del entorno y nunca la 
 ```bash
 MODEL_API_KEY=... python3 tools/smoke_api.py
 MODEL_API_KEY=... python3 tools/smoke_sam.py IMAGEN "electrolytic capacitor"
+MODEL_API_KEY=... python3 tools/smoke_map.py FOTO SALIDA   # mismo mapeo SAM que la app → candidatos.json
 MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGEN CANDIDATOS.json "síntoma" [ES|EN] [--plan]
 MODEL_API_KEY=... python3 tools/smoke_image.py IMAGEN "descripción del daño"
 ```

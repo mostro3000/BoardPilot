@@ -130,6 +130,7 @@ never print it):
 ```bash
 MODEL_API_KEY=... python3 tools/smoke_api.py
 MODEL_API_KEY=... python3 tools/smoke_sam.py IMAGE "electrolytic capacitor"
+MODEL_API_KEY=... python3 tools/smoke_map.py PHOTO OUT_DIR   # same SAM mapping as the app → candidatos.json
 MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGE CANDIDATES.json "symptom" [ES|EN] [--plan]
 MODEL_API_KEY=... python3 tools/smoke_image.py IMAGE "damage description"
 ```
