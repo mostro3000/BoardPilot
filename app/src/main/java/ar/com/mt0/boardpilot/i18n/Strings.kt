@@ -100,6 +100,7 @@ interface AppStrings {
     val photoRemove: String
     val photoCrop: String
     val cropTitle: String
+    val cropTurn: String
     val cropHint: String
     val cropRotate: String
     val cropReset: String
@@ -115,6 +116,8 @@ interface AppStrings {
     val liveMappingNote: String
     val symptomPlaceholder: String
     val diagnoseStart: String
+    val symptomTitle: String
+    val demoSymptomNote: String
     val projectsTitle: String
     val newProject: String
     val newProjectTitle: String
@@ -243,7 +246,8 @@ object EsStrings : AppStrings {
     override val photoRemove = "Quitar foto"
     override val photoCrop = "Recortar / girar"
     override val cropTitle = "Encuadrá la placa"
-    override val cropHint = "Dos dedos: acercar, alejar y girar. Un dedo: mover. Que la placa llene el cuadro."
+    override val cropHint = "Arrastrá las esquinas o los bordes del recuadro; tocá adentro para moverlo. Girá la foto con dos dedos o con la barra."
+    override val cropTurn = "Girar"
     override val cropRotate = "↻ 90°"
     override val cropReset = "Restablecer"
     override val cropApply = "Aplicar recorte"
@@ -258,6 +262,8 @@ object EsStrings : AppStrings {
     override val liveMappingNote = "Mapeo en vivo listo. Revisá las cajas sobre la foto y generá las hipótesis con Muse Spark."
     override val symptomPlaceholder = "Ej.: no enciende, sin LED"
     override val diagnoseStart = "Iniciar diagnóstico"
+    override val symptomTitle = "¿Qué le pasa a la placa?"
+    override val demoSymptomNote = "Si lo dejás vacío, se usa el síntoma del caso demo."
     override val projectsTitle = "Mis reparaciones"
     override val newProject = "Nueva reparación"
     override val newProjectTitle = "Nueva reparación"
@@ -412,7 +418,8 @@ object EnStrings : AppStrings {
     override val photoRemove = "Remove photo"
     override val photoCrop = "Crop / rotate"
     override val cropTitle = "Frame the board"
-    override val cropHint = "Two fingers: zoom and rotate. One finger: move. Let the board fill the frame."
+    override val cropHint = "Drag the corners or edges of the box; drag inside to move it. Rotate the photo with two fingers or the slider."
+    override val cropTurn = "Rotate"
     override val cropRotate = "↻ 90°"
     override val cropReset = "Reset"
     override val cropApply = "Apply crop"
@@ -427,6 +434,8 @@ object EnStrings : AppStrings {
     override val liveMappingNote = "Live mapping is ready. Review the boxes on the photo, then generate hypotheses with Muse Spark."
     override val symptomPlaceholder = "E.g.: completely dead, no LED"
     override val diagnoseStart = "Start diagnosis"
+    override val symptomTitle = "What is wrong with the board?"
+    override val demoSymptomNote = "Leave it empty to use the demo case symptom."
     override val projectsTitle = "My repairs"
     override val newProject = "New repair"
     override val newProjectTitle = "New repair"

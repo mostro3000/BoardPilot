@@ -26,8 +26,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +58,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -78,6 +80,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -85,7 +88,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -96,13 +98,14 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -127,6 +130,11 @@ import ar.com.mt0.boardpilot.domain.BoardComponent
 import ar.com.mt0.boardpilot.domain.CameraAction
 import ar.com.mt0.boardpilot.domain.CameraAfterRequest
 import ar.com.mt0.boardpilot.domain.ComponentKind
+import ar.com.mt0.boardpilot.domain.CropBox
+import ar.com.mt0.boardpilot.domain.RotatedPhoto
+import ar.com.mt0.boardpilot.domain.fineOf
+import ar.com.mt0.boardpilot.domain.normalizedAngle
+import ar.com.mt0.boardpilot.domain.quarterOf
 import ar.com.mt0.boardpilot.domain.PermissionGrant
 import ar.com.mt0.boardpilot.domain.ProjectStatus
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
@@ -139,7 +147,6 @@ import ar.com.mt0.boardpilot.domain.DiagnosisSession
 import ar.com.mt0.boardpilot.domain.MeasurementOutcome
 import ar.com.mt0.boardpilot.domain.MapZoom
 import ar.com.mt0.boardpilot.domain.MeasurementResult
-import ar.com.mt0.boardpilot.domain.PhotoFraming
 import ar.com.mt0.boardpilot.domain.SamBox
 import ar.com.mt0.boardpilot.domain.SamOutputParser
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
@@ -173,6 +180,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val PREFS = "boardpilot_prefs"
@@ -928,31 +936,34 @@ fun BoardPilotApp(
                         onCrop = { croppingPhoto = true },
                     )
                 }
+                // Con foto y clave es un diagnostico real: el sintoma lo escribe
+                // el tecnico (Muse Spark lo necesita y titula el proyecto). Sin
+                // eso es el demo, y vacio usa el sintoma del caso demo.
+                val live = boardBitmap != null && hasApiKey
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(strings.demoTitle, fontWeight = FontWeight.Bold)
+                        Text(if (live) strings.symptomTitle else strings.demoTitle,
+                            fontWeight = FontWeight.Bold)
                         OutlinedTextField(
                             value = symptomDraft,
                             onValueChange = { symptomDraft = it },
                             label = { Text(strings.symptomLabel) },
-                            placeholder = { Text(strings.symptomPlaceholder) },
+                            placeholder = {
+                                Text(if (live) strings.symptomPlaceholder else DemoCaseSmps.symptom(language))
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        if (symptomDraft.isBlank()) {
-                            Text(DemoCaseSmps.symptom(language))
+                        if (!live) {
+                            Text(strings.demoSymptomNote, fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Button(
                             onClick = { startDiagnosis(project) },
+                            enabled = !live || symptomDraft.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                if (boardBitmap != null && hasApiKey) {
-                                    strings.diagnoseStart
-                                } else {
-                                    strings.demoStart
-                                },
-                            )
+                            Text(if (live) strings.diagnoseStart else strings.demoStart)
                         }
                     }
                 }
@@ -1918,10 +1929,11 @@ private suspend fun PointerInputScope.detectMapPinch(
 }
 
 /**
- * Encuadre de la foto antes de diagnosticar: dos dedos acercan, alejan y
- * giran; un dedo mueve; el boton gira 90 grados exactos. Lo que queda dentro
- * del marco pasa a ser la foto del proyecto (con la placa llenando el
- * cuadro, SAM la segmenta mejor).
+ * Recorte como en las apps de imagenes: la foto entera con un recuadro libre
+ * encima. Las esquinas y los bordes lo ajustan y arrastrando por dentro se
+ * mueve; la foto se gira libre con dos dedos o con la barra (y de a 90 grados
+ * con el boton). Al girar, el recuadro pasa a ser el mas grande sin esquinas
+ * vacias, y nunca se puede sacar de la foto. Lo de adentro es la foto nueva.
  */
 @Composable
 private fun PhotoCropper(
@@ -1931,45 +1943,74 @@ private fun PhotoCropper(
     onCancel: () -> Unit,
 ) {
     val image = remember(source) { source.asImageBitmap() }
-    var aspect by rememberSaveable {
-        mutableStateOf(if (source.height >= source.width) 0.75f else 4f / 3f)
+    var angle by rememberSaveable { mutableStateOf(0f) }
+    val photo = remember(source, angle) {
+        RotatedPhoto(source.width.toFloat(), source.height.toFloat(), angle)
     }
-    var scale by rememberSaveable { mutableStateOf(1f) }
-    var rotation by rememberSaveable { mutableStateOf(0f) }
-    var offsetX by rememberSaveable { mutableStateOf(0f) }
-    var offsetY by rememberSaveable { mutableStateOf(0f) }
-    var frame by remember { mutableStateOf(IntSize.Zero) }
-    fun framing() = PhotoFraming(scale, rotation, offsetX, offsetY)
-    fun set(f: PhotoFraming) {
-        scale = f.scale
-        rotation = f.rotation
-        offsetX = f.offsetX
-        offsetY = f.offsetY
+    var box by rememberSaveable(angle, stateSaver = CropBoxSaver) {
+        mutableStateOf(photo.largestInside())
     }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(strings.cropTitle, fontWeight = FontWeight.Bold)
             Text(strings.cropHint, fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // El area sigue la forma de la foto: apaisada o vertical, que se vea grande.
             Box(
                 Modifier.fillMaxWidth()
-                    .aspectRatio(aspect)
-                    .clipToBounds()
-                    .background(Color(0xFF15080B))
-                    .onSizeChanged { frame = it }
+                    .aspectRatio((photo.boundsW / photo.boundsH).coerceIn(0.75f, 1.6f))
+                    .background(Color(0xFF15080B), RoundedCornerShape(8.dp))
+                    // Dos dedos giran la foto (libre); el recuadro se reacomoda solo.
                     .pointerInput(Unit) {
-                        detectTransformGestures { centroid, pan, zoom, turn ->
-                            set(framing().afterGesture(centroid.x, centroid.y, pan.x, pan.y,
-                                zoom, turn, frame.width.toFloat(), frame.height.toFloat()))
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            do {
+                                val event = awaitPointerEvent()
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    val turn = event.calculateRotation()
+                                    if (turn != 0f) angle = normalizedAngle(angle + turn)
+                                    event.changes.forEach { it.consume() }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
+                    // Un dedo: esquinas, bordes o mover el recuadro.
+                    .pointerInput(photo) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            val view = CropView(size.width.toFloat(), size.height.toFloat(),
+                                photo.boundsW, photo.boundsH, CROP_INSET.toPx())
+                            val at = view.toPhoto(down.position)
+                            // Fuera del recuadro el dedo sigue desplazando la pantalla. El
+                            // agarre de esquinas y bordes no tapa el centro de un recuadro
+                            // chico: ahi siempre se puede tocar para moverlo.
+                            val reach = min(28.dp.toPx() / view.scale, min(box.width, box.height) / 4f)
+                            val handle = box.hit(at.x, at.y, reach) ?: return@awaitEachGesture
+                            down.consume()
+                            val minSize = 56.dp.toPx() / view.scale
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                // Si se apoya un segundo dedo, es un giro: se suelta el recuadro.
+                                if (event.changes.count { it.pressed } != 1) break
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                val d = change.positionChange()
+                                if (d != Offset.Zero) {
+                                    box = box.dragged(handle, d.x / view.scale, d.y / view.scale,
+                                        photo, minSize)
+                                    change.consume()
+                                }
+                            }
                         }
                     },
             ) {
                 Canvas(Modifier.fillMaxSize()) {
-                    val fit = max(size.width / image.width, size.height / image.height)
+                    val view = CropView(size.width, size.height, photo.boundsW, photo.boundsH,
+                        CROP_INSET.toPx())
                     withTransform({
-                        translate(size.width / 2f + offsetX, size.height / 2f + offsetY)
-                        rotate(rotation, Offset.Zero)
-                        scale(fit * scale, fit * scale, Offset.Zero)
+                        translate(view.left + view.width / 2f, view.top + view.height / 2f)
+                        rotate(angle, Offset.Zero)
+                        scale(view.scale, view.scale, Offset.Zero)
                     }) {
                         drawImage(
                             image,
@@ -1978,84 +2019,125 @@ private fun PhotoCropper(
                             filterQuality = FilterQuality.High,
                         )
                     }
-                    // Reticula de tercios para alinear la placa.
-                    val grid = Color.White.copy(alpha = 0.35f)
-                    for (k in 1..2) {
-                        drawLine(grid, Offset(size.width * k / 3f, 0f),
-                            Offset(size.width * k / 3f, size.height), 1.dp.toPx())
-                        drawLine(grid, Offset(0f, size.height * k / 3f),
-                            Offset(size.width, size.height * k / 3f), 1.dp.toPx())
-                    }
+                    drawCropOverlay(view, box)
                 }
             }
+            Text(
+                "${box.width.roundToInt()} × ${box.height.roundToInt()} px · " +
+                    "${angle.roundToInt()}°",
+                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Ajuste fino (enderezar) dentro del cuarto de vuelta actual.
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(strings.cropTurn, fontSize = 14.sp)
+                Slider(
+                    value = fineOf(angle),
+                    onValueChange = { angle = normalizedAngle(quarterOf(angle) + it) },
+                    valueRange = -45f..45f,
+                    colors = SliderDefaults.colors(
+                        inactiveTrackColor = MaterialTheme.colorScheme.outline,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("3:4" to 0.75f, "1:1" to 1f, "4:3" to 4f / 3f).forEach { (label, value) ->
-                    val chipModifier = Modifier.weight(1f)
-                    val chipPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
-                    if (value == aspect) {
-                        Button(onClick = { aspect = value }, modifier = chipModifier,
-                            contentPadding = chipPadding) { Text(label, maxLines = 1) }
-                    } else {
-                        OutlinedButton(onClick = { aspect = value }, modifier = chipModifier,
-                            contentPadding = chipPadding) { Text(label, maxLines = 1) }
-                    }
-                }
+                OutlinedButton(
+                    onClick = { angle = normalizedAngle(angle + 90f) },
+                    modifier = Modifier.weight(1f),
+                ) { Text(strings.cropRotate, maxLines = 1) }
                 OutlinedButton(
                     onClick = {
-                        // Girada, una foto apaisada ya no llena el marco: se agranda lo justo.
-                        val turned = framing().turned90()
-                        val cover = turned.coverScale(source.width.toFloat(), source.height.toFloat(),
-                            frame.width.toFloat(), frame.height.toFloat())
-                        set(turned.copy(scale = max(turned.scale, cover)))
+                        angle = 0f
+                        box = CropBox(0f, 0f, source.width.toFloat(), source.height.toFloat())
                     },
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-                ) { Text(strings.cropRotate, maxLines = 1) }
+                ) { Text(strings.cropReset, maxLines = 1) }
             }
             Button(
-                onClick = {
-                    if (frame.width > 0 && frame.height > 0) {
-                        onApply(renderCrop(source, frame, framing()))
-                    }
-                },
+                onClick = { onApply(renderCrop(source, photo, box)) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(strings.cropApply) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { set(PhotoFraming()) }, modifier = Modifier.weight(1f)) {
-                    Text(strings.cropReset, maxLines = 1)
-                }
-                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-                    Text(strings.cropCancel, maxLines = 1)
-                }
+            OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                Text(strings.cropCancel)
             }
         }
     }
 }
 
+/** Margen alrededor de la foto en el editor, para poder agarrar las esquinas. */
+private val CROP_INSET = 20.dp
+
+private val CropBoxSaver = Saver<CropBox, List<Float>>(
+    save = { listOf(it.left, it.top, it.right, it.bottom) },
+    restore = { CropBox(it[0], it[1], it[2], it[3]) },
+)
+
+/** Donde se dibuja la foto girada dentro del editor: encajada y centrada, con margen. */
+private class CropView(boxW: Float, boxH: Float, photoW: Float, photoH: Float, inset: Float) {
+    val scale = min((boxW - 2f * inset) / photoW, (boxH - 2f * inset) / photoH)
+    val width = photoW * scale
+    val height = photoH * scale
+    val left = (boxW - width) / 2f
+    val top = (boxH - height) / 2f
+
+    fun toPhoto(p: Offset) = Offset((p.x - left) / scale, (p.y - top) / scale)
+
+    fun toView(x: Float, y: Float) = Offset(left + x * scale, top + y * scale)
+}
+
+/** Afuera oscurecido, borde, reticula de tercios, esquinas en L y marcas en los bordes. */
+private fun DrawScope.drawCropOverlay(view: CropView, box: CropBox) {
+    val tl = view.toView(box.left, box.top)
+    val br = view.toView(box.right, box.bottom)
+    val w = br.x - tl.x
+    val h = br.y - tl.y
+    val dim = Color.Black.copy(alpha = 0.6f)
+    drawRect(dim, Offset(view.left, view.top), Size(view.width, tl.y - view.top))
+    drawRect(dim, Offset(view.left, br.y), Size(view.width, view.top + view.height - br.y))
+    drawRect(dim, Offset(view.left, tl.y), Size(tl.x - view.left, h))
+    drawRect(dim, Offset(br.x, tl.y), Size(view.left + view.width - br.x, h))
+    val grid = Color.White.copy(alpha = 0.45f)
+    for (k in 1..2) {
+        drawLine(grid, Offset(tl.x + w * k / 3f, tl.y), Offset(tl.x + w * k / 3f, br.y), 1.dp.toPx())
+        drawLine(grid, Offset(tl.x, tl.y + h * k / 3f), Offset(br.x, tl.y + h * k / 3f), 1.dp.toPx())
+    }
+    drawRect(Color.White, tl, Size(w, h), style = Stroke(1.5.dp.toPx()))
+    val len = min(22.dp.toPx(), min(w, h) / 2f)
+    val thick = 4.dp.toPx()
+    fun corner(c: Offset, sx: Float, sy: Float) {
+        drawLine(Color.White, c, Offset(c.x + sx * len, c.y), thick, StrokeCap.Square)
+        drawLine(Color.White, c, Offset(c.x, c.y + sy * len), thick, StrokeCap.Square)
+    }
+    corner(tl, 1f, 1f)
+    corner(Offset(br.x, tl.y), -1f, 1f)
+    corner(Offset(tl.x, br.y), 1f, -1f)
+    corner(br, -1f, -1f)
+    val bar = min(18.dp.toPx(), min(w, h) / 3f) / 2f
+    val midX = (tl.x + br.x) / 2f
+    val midY = (tl.y + br.y) / 2f
+    drawLine(Color.White, Offset(midX - bar, tl.y), Offset(midX + bar, tl.y), thick)
+    drawLine(Color.White, Offset(midX - bar, br.y), Offset(midX + bar, br.y), thick)
+    drawLine(Color.White, Offset(tl.x, midY - bar), Offset(tl.x, midY + bar), thick)
+    drawLine(Color.White, Offset(br.x, midY - bar), Offset(br.x, midY + bar), thick)
+}
+
 /**
- * Lo que se ve en el marco, como foto nueva: a la resolucion de la original
- * (sin inventar detalle) con el lado mayor entre 480 y 1600 px. Lo que quede
- * fuera de la foto sale en el fondo oscuro del marco.
+ * La foto nueva: lo que quedo dentro del recuadro, girada y recortada en un
+ * solo paso a la resolucion real de la original (sin estirar).
  */
-private fun renderCrop(source: Bitmap, frame: IntSize, framing: PhotoFraming): Bitmap {
-    val fw = frame.width.toFloat()
-    val fh = frame.height.toFloat()
-    val longest = max(fw, fh)
-    val fit = max(fw / source.width, fh / source.height)
-    val k = (1f / (fit * framing.scale)).coerceIn(480f / longest, 1600f / longest)
+private fun renderCrop(source: Bitmap, photo: RotatedPhoto, box: CropBox): Bitmap {
     val out = Bitmap.createBitmap(
-        (fw * k).roundToInt().coerceAtLeast(1),
-        (fh * k).roundToInt().coerceAtLeast(1),
+        box.width.roundToInt().coerceAtLeast(1),
+        box.height.roundToInt().coerceAtLeast(1),
         Bitmap.Config.ARGB_8888,
     )
     val canvas = android.graphics.Canvas(out)
     canvas.drawColor(0xFF15080B.toInt())
     val matrix = android.graphics.Matrix().apply {
         postTranslate(-source.width / 2f, -source.height / 2f)
-        postScale(fit * framing.scale, fit * framing.scale)
-        postRotate(framing.rotation)
-        postTranslate(fw / 2f + framing.offsetX, fh / 2f + framing.offsetY)
-        postScale(k, k)
+        postRotate(photo.angle)
+        postTranslate(photo.boundsW / 2f - box.left, photo.boundsH / 2f - box.top)
     }
     canvas.drawBitmap(source, matrix, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
     return out
