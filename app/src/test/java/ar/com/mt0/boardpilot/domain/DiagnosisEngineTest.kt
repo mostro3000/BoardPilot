@@ -116,4 +116,24 @@ class DiagnosisEngineTest {
             assertEquals(Stage.VERIFIED, engine.session.stage)
         }
     }
+
+    @Test
+    fun `sin veredicto se suman mediciones nuevas y cada resultado recuerda que se midio`() {
+        val engine = engineAtMeasuring(AppLanguage.ES)
+        // Todas normales: se agotan sin confirmar ninguna hipotesis.
+        while (engine.session.currentRequest != null) {
+            engine.confirmSafety()
+            engine.submitResult(
+                MeasurementResult(engine.session.currentRequest!!.id, MeasurementOutcome.NORMAL))
+        }
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        assertTrue(engine.session.results.all { it.note.isNotBlank() })
+        val extra = MeasurementRequest("m9", "c12", MeasurementKind.RESISTANCE, "C12 en ohms",
+            "sube por carga", "0 ohm", SafetyGate.DE_ENERGIZED, "h_c12")
+        engine.addRequests(listOf(extra, extra.copy(id = "m10", targetHypothesisId = "nope")))
+        // Solo entra la que apunta a una hipotesis cargada.
+        assertEquals(listOf("m9"), engine.session.pendingRequests.map { it.id })
+        engine.startMeasuring()
+        assertEquals(Stage.MEASURING, engine.session.stage)
+    }
 }

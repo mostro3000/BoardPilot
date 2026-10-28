@@ -38,7 +38,7 @@ object SessionCodec {
                 listOf(
                     enc(hypothesis.id), enc(hypothesis.title), enc(hypothesis.componentId),
                     hypothesis.confidence.toString(), enc(hypothesis.rationale),
-                    if (hypothesis.confirmedByMeasurement) "1" else "0",
+                    if (hypothesis.confirmedByMeasurement) "1" else "0", enc(hypothesis.fix),
                 ).joinToString("|"),
             )
         }
@@ -86,7 +86,8 @@ object SessionCodec {
             )
         }
         val hypotheses = List(cursor.nextCount()) {
-            val fields = cursor.nextFields(6)
+            // Las sesiones guardadas antes de "fix" traen 6 campos.
+            val fields = cursor.nextFields(6, 7)
             Hypothesis(
                 id = dec(fields[0]),
                 title = dec(fields[1]),
@@ -94,6 +95,7 @@ object SessionCodec {
                 confidence = fields[3].toDouble(),
                 rationale = dec(fields[4]),
                 confirmedByMeasurement = fields[5] == "1",
+                fix = fields.getOrNull(6)?.let(::dec).orEmpty(),
             )
         }
         val requests = List(cursor.nextCount()) {
@@ -159,8 +161,8 @@ object SessionCodec {
             require(it in 0..10_000) { "cantidad fuera de rango" }
         }
 
-        fun nextFields(expected: Int): List<String> = next().split("|").also {
-            require(it.size == expected) { "registro invalido" }
+        fun nextFields(vararg allowed: Int): List<String> = next().split("|").also {
+            require(it.size in allowed) { "registro invalido" }
         }
     }
 }

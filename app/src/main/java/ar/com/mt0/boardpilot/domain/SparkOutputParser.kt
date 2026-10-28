@@ -11,46 +11,44 @@ data class SparkDiagnosis(
     val extraComponents: List<BoardComponent> = emptyList(),
 )
 
+/** Siguientes mediciones pedidas a Muse Spark sobre hipotesis ya cargadas. */
+data class SparkPlan(
+    val requests: List<MeasurementRequest> = emptyList(),
+    val needMoreEvidence: String? = null,
+)
+
 /**
  * Interpreta la salida JSON de Muse Spark de forma defensiva:
  * - Tolera cercos de codigo Markdown y texto alrededor del objeto JSON.
- * - Descarta hipotesis/mediciones que referencien componentes inexistentes,
- *   tipos de medicion desconocidos o textos vacios.
+ * - Es tolerante con lo que el modelo suele variar sin cambiar el sentido:
+ *   el componente por su designador ("CYL 2") en vez del id, el tipo de
+ *   medicion con otro nombre ("Continuidad", "VOLTAGE") o una hipotesis
+ *   destino que no existe (se usa la del mismo componente).
+ * - Descarta lo que no se puede usar con seguridad: componentes inexistentes,
+ *   tipos desconocidos, mediciones en alterna (red electrica) y textos vacios.
  * - La compuerta de seguridad la fija el dominio segun el tipo de medicion
  *   ([safetyGateFor]), nunca el modelo.
  * - Limita cantidades (4 hipotesis, 5 mediciones) y normaliza ids unicos.
- * Ante JSON invalido devuelve un [SparkDiagnosis] vacio.
+ * Ante JSON invalido devuelve resultados vacios.
  */
 object SparkOutputParser {
     private const val MAX_HYPOTHESES = 4
     private const val MAX_MEASUREMENTS = 5
+    private const val MAX_PLAN = 3
 
     /** Id reservado para el dano visible que SAM no llego a encuadrar. */
     const val UNMAPPED_DAMAGE_ID = "dmg1-spark"
 
     fun parse(text: String, components: List<BoardComponent>): SparkDiagnosis {
-        val root = runCatching { MiniJson.parse(extractJson(text)) }.getOrNull()
-            as? Map<*, *> ?: return SparkDiagnosis()
-        val inputIds = components.map { it.id }.toSet()
-
-        // Dano visible sobre componentes ya mapeados por SAM.
-        val damages = LinkedHashMap<String, String>()
-        (root["damages"] as? List<*>).orEmpty().forEach { raw ->
-            val m = raw as? Map<*, *> ?: return@forEach
-            val id = m.str("componentId")?.takeIf { it in inputIds }
-                ?: return@forEach
-            val damage = m.str("damage")?.takeIf { it.isNotBlank() }
-                ?: return@forEach
-            damages.putIfAbsent(id, damage)
-        }
+        val root = parseRoot(text) ?: return SparkDiagnosis()
 
         // Dano visible sin caja: Spark estima la caja y pasa a ser candidato
         // sintetico DMG (id libre siguiente si el pre-escaneo ya creo alguno),
         // o se asigna al componente que ya lo contiene.
+        val damages = LinkedHashMap<String, String>()
         val extraComponents = mutableListOf<BoardComponent>()
         (root["unmappedDamage"] as? Map<*, *>)?.let { unmapped ->
-            val description = unmapped.str("description")
-                ?.takeIf { it.isNotBlank() }
+            val description = unmapped.str("description")?.takeIf { it.isNotBlank() }
             val x = unmapped.num("x")
             val y = unmapped.num("y")
             val w = unmapped.num("w")
@@ -60,19 +58,27 @@ object SparkOutputParser {
                     listOf(DamageFinding(description, SparkDamageParser.clampBox(x, y, w, h))),
                     components,
                 )
-                assigned.first.forEach { (id, damage) ->
-                    damages.putIfAbsent(id, damage)
-                }
+                assigned.first.forEach { (id, damage) -> damages.putIfAbsent(id, damage) }
                 extraComponents += assigned.second
             }
         }
-        val validIds = inputIds + extraComponents.map { it.id }
+        val known = components + extraComponents
+        // El modelo puede referirse a la zona sin caja por el id reservado.
+        val reserved = extraComponents.firstOrNull()?.id
+
+        // Dano visible sobre componentes ya mapeados por SAM.
+        (root["damages"] as? List<*>).orEmpty().forEach { raw ->
+            val m = raw as? Map<*, *> ?: return@forEach
+            val id = resolve(m.str("componentId"), known, reserved) ?: return@forEach
+            val damage = m.str("damage")?.takeIf { it.isNotBlank() } ?: return@forEach
+            damages.putIfAbsent(id, damage)
+        }
 
         val usedHypIds = mutableSetOf<String>()
         val hypotheses = (root["hypotheses"] as? List<*>).orEmpty()
             .mapIndexedNotNull { index, raw ->
                 val m = raw as? Map<*, *> ?: return@mapIndexedNotNull null
-                val componentId = m.str("componentId")?.takeIf { it in validIds }
+                val componentId = resolve(m.str("componentId"), known, reserved)
                     ?: return@mapIndexedNotNull null
                 val title = m.str("title")?.takeIf { it.isNotBlank() }
                     ?: return@mapIndexedNotNull null
@@ -86,53 +92,116 @@ object SparkOutputParser {
                     confidence = (m["confidence"] as? Number)?.toDouble()
                         ?.coerceIn(0.01, 0.99) ?: 0.25,
                     rationale = m.str("rationale").orEmpty(),
+                    fix = m.firstStr("fix", "replacement", "repair").orEmpty(),
                 )
             }
             .take(MAX_HYPOTHESES)
 
-        val usedReqIds = mutableSetOf<String>()
-        val requests = (root["measurements"] as? List<*>).orEmpty()
-            .mapIndexedNotNull { index, raw ->
-                val m = raw as? Map<*, *> ?: return@mapIndexedNotNull null
-                val componentId = m.str("componentId")?.takeIf { it in validIds }
-                    ?: return@mapIndexedNotNull null
-                val kind = m.str("kind")?.let {
-                    runCatching { MeasurementKind.valueOf(it.trim().uppercase()) }
-                        .getOrNull()
-                } ?: return@mapIndexedNotNull null
-                val target = m.str("targetHypothesisId")?.takeIf { it in usedHypIds }
-                    ?: return@mapIndexedNotNull null
-                val instruction = m.str("instruction")?.takeIf { it.isNotBlank() }
-                    ?: return@mapIndexedNotNull null
-                val normal = m.str("normal")?.takeIf { it.isNotBlank() }
-                    ?: return@mapIndexedNotNull null
-                val abnormal = m.str("abnormal")?.takeIf { it.isNotBlank() }
-                    ?: return@mapIndexedNotNull null
-                var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "m${index + 1}"
-                while (id in usedReqIds) id += "b"
-                usedReqIds += id
-                MeasurementRequest(
-                    id = id,
-                    componentId = componentId,
-                    kind = kind,
-                    instruction = instruction,
-                    normalDescription = normal,
-                    abnormalDescription = abnormal,
-                    gate = safetyGateFor(kind),
-                    targetHypothesisId = target,
-                )
-            }
-            .take(MAX_MEASUREMENTS)
-
         return SparkDiagnosis(
             hypotheses = hypotheses,
-            requests = requests,
-            needMoreEvidence = root.str("needMoreEvidence")
-                ?.takeIf { it.isNotBlank() },
+            requests = requests(root["measurements"], known, reserved, hypotheses, emptySet())
+                .take(MAX_MEASUREMENTS),
+            needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() },
             damages = damages,
             extraComponents = extraComponents,
         )
     }
+
+    /**
+     * Siguientes mediciones sobre las [hypotheses] ya cargadas; los ids nuevos
+     * no repiten ninguno de [takenIds] (mediciones pendientes o ya hechas).
+     */
+    fun parsePlan(
+        text: String,
+        components: List<BoardComponent>,
+        hypotheses: List<Hypothesis>,
+        takenIds: Set<String>,
+    ): SparkPlan {
+        val root = parseRoot(text) ?: return SparkPlan()
+        return SparkPlan(
+            requests = requests(root["measurements"], components, null, hypotheses, takenIds)
+                .take(MAX_PLAN),
+            needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    /**
+     * Tipo de medicion tal como lo escribe el modelo, con sinonimos en ES/EN.
+     * Las mediciones en alterna se rechazan: BoardPilot no guia mediciones
+     * sobre la red electrica.
+     */
+    fun parseKind(raw: String?): MeasurementKind? {
+        val key = raw?.trim()?.uppercase()
+            ?.replace(Regex("[^A-Z0-9ÁÉÍÓÚÑ]+"), "_")?.trim('_')
+            ?.takeIf { it.isNotEmpty() } ?: return null
+        MeasurementKind.entries.firstOrNull { it.name == key }?.let { return it }
+        val tokens = key.split("_").toSet()
+        return when {
+            tokens.any { it in AC_TOKENS } -> null
+            "VOLT" in key || "TENSI" in key || "VDC" in tokens || "DCV" in tokens ->
+                MeasurementKind.VOLTAGE_DC
+            "DIOD" in key -> MeasurementKind.DIODE
+            "CONTIN" in key || "BEEP" in key -> MeasurementKind.CONTINUITY
+            "RESIST" in key || "OHM" in key -> MeasurementKind.RESISTANCE
+            else -> null
+        }
+    }
+
+    private val AC_TOKENS = setOf("AC", "VAC", "ACV", "ALTERNA", "ALTERNATING")
+
+    private fun requests(
+        raw: Any?,
+        components: List<BoardComponent>,
+        reserved: String?,
+        hypotheses: List<Hypothesis>,
+        takenIds: Set<String>,
+    ): List<MeasurementRequest> {
+        val hypIds = hypotheses.map { it.id }.toSet()
+        val usedReqIds = takenIds.toMutableSet()
+        return (raw as? List<*>).orEmpty().mapIndexedNotNull { index, item ->
+            val m = item as? Map<*, *> ?: return@mapIndexedNotNull null
+            val componentId = resolve(m.str("componentId"), components, reserved)
+                ?: return@mapIndexedNotNull null
+            val kind = parseKind(m.str("kind")) ?: return@mapIndexedNotNull null
+            // Sin destino valido, solo la hipotesis sobre ese mismo componente: una
+            // lectura anormal nunca debe reforzar la hipotesis de otro componente.
+            val target = m.str("targetHypothesisId")?.takeIf { it in hypIds }
+                ?: hypotheses.firstOrNull { it.componentId == componentId }?.id
+                ?: return@mapIndexedNotNull null
+            val instruction = m.firstStr("instruction", "how", "procedure")
+                ?: return@mapIndexedNotNull null
+            var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "m${index + 1}"
+            while (id in usedReqIds) id += "b"
+            usedReqIds += id
+            MeasurementRequest(
+                id = id,
+                componentId = componentId,
+                kind = kind,
+                instruction = instruction,
+                normalDescription = m.firstStr("normal", "normalDescription", "expected").orEmpty(),
+                abnormalDescription = m.firstStr("abnormal", "abnormalDescription", "fault").orEmpty(),
+                gate = safetyGateFor(kind),
+                targetHypothesisId = target,
+            )
+        }
+    }
+
+    /**
+     * Id de candidato a partir de lo que mando el modelo: el id exacto, o el
+     * designador sin importar mayusculas ni espacios ("CYL 2", "cyl2").
+     */
+    private fun resolve(raw: String?, components: List<BoardComponent>, reserved: String?): String? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (components.any { it.id == value }) return value
+        if (value == UNMAPPED_DAMAGE_ID && reserved != null) return reserved
+        val key = value.lowercase().replace(Regex("\\s+"), "")
+        return components.firstOrNull {
+            it.id.lowercase() == key || it.designator.lowercase().replace(Regex("\\s+"), "") == key
+        }?.id
+    }
+
+    private fun parseRoot(text: String): Map<*, *>? =
+        runCatching { MiniJson.parse(extractJson(text)) }.getOrNull() as? Map<*, *>
 
     private fun extractJson(text: String): String {
         val start = text.indexOf('{')
@@ -142,6 +211,9 @@ object SparkOutputParser {
     }
 
     private fun Map<*, *>.str(key: String): String? = this[key] as? String
+
+    private fun Map<*, *>.firstStr(vararg keys: String): String? =
+        keys.firstNotNullOfOrNull { str(it)?.takeIf { value -> value.isNotBlank() } }
 
     private fun Map<*, *>.num(key: String): Double? =
         (this[key] as? Number)?.toDouble()?.takeIf { it.isFinite() }

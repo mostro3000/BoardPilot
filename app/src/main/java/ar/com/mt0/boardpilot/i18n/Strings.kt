@@ -59,6 +59,16 @@ interface AppStrings {
     val generateHypotheses: String
     val startMeasuring: String
     val needMoreEvidence: String
+    val nextStepTitle: String
+    val nextStepHint: String
+    fun firstMeasurement(kind: String, designator: String): String
+    val noMeasurementsLive: String
+    val measuredNoVerdict: String
+    val askMeasurements: String
+    val askingMeasurements: String
+    val askFailed: String
+    val startOver: String
+    val fixLabel: String
     val restartDemo: String
     val measurementTitle: String
     val normalLabel: String
@@ -205,6 +215,16 @@ object EsStrings : AppStrings {
     override val generateHypotheses = "Generar hipótesis (demo Muse Spark)"
     override val startMeasuring = "Empezar mediciones guiadas"
     override val needMoreEvidence = "Sin mediciones pendientes y sin evidencia suficiente: en vivo se pediría una foto macro u otra medición."
+    override val nextStepTitle = "Siguiente paso: medir"
+    override val nextStepHint = "BoardPilot te guía una medición por vez: dónde poner las puntas, qué tenés que ver en el multímetro y la compuerta de seguridad antes de cada una."
+    override fun firstMeasurement(kind: String, designator: String) = "Primera: $kind en $designator"
+    override val noMeasurementsLive = "Muse Spark todavía no propuso mediciones. Pedíselas: te va a decir qué medir para confirmar o descartar estas hipótesis."
+    override val measuredNoVerdict = "Las mediciones hechas no alcanzaron para un veredicto. Pedí las siguientes: Muse Spark las elige con estos resultados."
+    override val askMeasurements = "Pedir mediciones a Muse Spark"
+    override val askingMeasurements = "Muse Spark está eligiendo qué medir..."
+    override val askFailed = "No se pudieron pedir las mediciones. Revisá la conexión y tu clave, y reintentá."
+    override val startOver = "Empezar de nuevo"
+    override val fixLabel = "Si se confirma"
     override val restartDemo = "Reiniciar demo"
     override val measurementTitle = "Medición"
     override val normalLabel = "Normal"
@@ -377,6 +397,16 @@ object EnStrings : AppStrings {
     override val generateHypotheses = "Generate hypotheses (Muse Spark demo)"
     override val startMeasuring = "Start guided measurements"
     override val needMoreEvidence = "No measurements left and not enough evidence: live mode would ask for a macro photo or another measurement."
+    override val nextStepTitle = "Next step: measure"
+    override val nextStepHint = "BoardPilot guides one measurement at a time: where to put the probes, what the meter should show and the safety gate before each one."
+    override fun firstMeasurement(kind: String, designator: String) = "First: $kind on $designator"
+    override val noMeasurementsLive = "Muse Spark has not proposed measurements yet. Ask for them: it will tell you what to measure to confirm or rule out these hypotheses."
+    override val measuredNoVerdict = "The measurements so far were not enough for a verdict. Ask for the next ones: Muse Spark picks them using these results."
+    override val askMeasurements = "Ask Muse Spark for measurements"
+    override val askingMeasurements = "Muse Spark is choosing what to measure..."
+    override val askFailed = "Could not get measurements. Check your connection and key, then retry."
+    override val startOver = "Start over"
+    override val fixLabel = "If confirmed"
     override val restartDemo = "Restart demo"
     override val measurementTitle = "Measurement"
     override val normalLabel = "Normal"

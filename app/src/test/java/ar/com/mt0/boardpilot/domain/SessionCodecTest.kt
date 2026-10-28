@@ -52,4 +52,23 @@ class SessionCodecTest {
             SessionCodec.decode("no-es-una-sesion")
         }
     }
+
+    @Test
+    fun `hipotesis con reemplazo sugerido y sesiones viejas sin ese campo`() {
+        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
+            components = DemoCaseSmps.components(AppLanguage.ES),
+            hypotheses = listOf(
+                Hypothesis("h1", "Q3 en corto", "q3", 0.7, "r", fix = "MOSFET N 600 V 4 A (4N60)"),
+            ),
+            stage = Stage.HYPOTHESES,
+        )
+        val text = SessionCodec.encode(session)
+        assertEquals(session, SessionCodec.decode(text))
+        // Formato anterior: la hipotesis sin el septimo campo.
+        val legacy = text.lines().joinToString("\n") { line ->
+            val parts = line.split("|")
+            if (parts.size == 7) parts.take(6).joinToString("|") else line
+        }
+        assertEquals("", SessionCodec.decode(legacy).hypotheses.single().fix)
+    }
 }

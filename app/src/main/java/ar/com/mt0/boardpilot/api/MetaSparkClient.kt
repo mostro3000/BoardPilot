@@ -6,6 +6,8 @@ import android.graphics.Paint
 import android.util.Base64
 import ar.com.mt0.boardpilot.domain.BoardComponent
 import ar.com.mt0.boardpilot.domain.DamageFinding
+import ar.com.mt0.boardpilot.domain.Hypothesis
+import ar.com.mt0.boardpilot.domain.MeasurementResult
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
 import ar.com.mt0.boardpilot.i18n.AppLanguage
@@ -81,20 +83,7 @@ class MetaSparkClient(
         val annotated = annotate(bitmap, components)
         val cleanUrl = "data:image/jpeg;base64," + encodeJpeg(bitmap)
         val imageUrl = "data:image/jpeg;base64," + encodeJpeg(annotated)
-        val candidatesJson = JSONArray().apply {
-            components.forEach { c ->
-                put(JSONObject().apply {
-                    put("id", c.id)
-                    put("designator", c.designator)
-                    put("kind", c.kind.name)
-                    put("x", c.box.x.toDouble())
-                    put("y", c.box.y.toDouble())
-                    put("w", c.box.w.toDouble())
-                    put("h", c.box.h.toDouble())
-                    c.visibleDamage?.let { put("visibleDamage", it) }
-                })
-            }
-        }
+        val candidatesJson = candidatesJson(components)
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
         val prescan = if (damageFindings.isEmpty()) {
             ""
@@ -134,6 +123,86 @@ class MetaSparkClient(
                 }))
         }
         chat(body)
+    }
+
+    /**
+     * Siguientes mediciones sobre las hipotesis ya cargadas, con lo que ya se
+     * midio y su resultado: el paso del loop del agente cuando el diagnostico
+     * no trajo mediciones o se agotaron sin veredicto. Devuelve el JSON crudo.
+     */
+    suspend fun planMeasurements(
+        bitmap: Bitmap,
+        components: List<BoardComponent>,
+        symptom: String,
+        hypotheses: List<Hypothesis>,
+        done: List<MeasurementResult>,
+        language: AppLanguage,
+    ): String = withContext(Dispatchers.IO) {
+        val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
+        val hypothesesJson = JSONArray().apply {
+            hypotheses.forEach { h ->
+                put(JSONObject().apply {
+                    put("id", h.id)
+                    put("title", h.title)
+                    put("componentId", h.componentId)
+                    put("confidence", h.confidence)
+                    put("confirmedByMeasurement", h.confirmedByMeasurement)
+                })
+            }
+        }
+        val doneJson = JSONArray().apply {
+            done.forEach { r ->
+                put(JSONObject().apply {
+                    put("id", r.requestId)
+                    put("measured", r.note)
+                    put("result", r.outcome.name)
+                })
+            }
+        }
+        val userText = "Symptom: $symptom\n" +
+            "Candidate components:\n" + candidatesJson(components) + "\n" +
+            "Current hypotheses:\n" + hypothesesJson + "\n" +
+            "Measurements already done:\n" + doneJson
+        val body = JSONObject().apply {
+            put("model", "muse-spark-1.3")
+            put("max_tokens", 8000)
+            reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
+            put("temperature", 0.2)
+            put("messages", JSONArray()
+                .put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", PLAN_PROMPT.replace("LANGUAGE", languageName))
+                })
+                .put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", JSONArray()
+                        .put(JSONObject().apply {
+                            put("type", "text")
+                            put("text", userText)
+                        })
+                        .put(JSONObject().apply {
+                            put("type", "image_url")
+                            put("image_url", JSONObject().put(
+                                "url", "data:image/jpeg;base64," + encodeJpeg(bitmap)))
+                        }))
+                }))
+        }
+        chat(body)
+    }
+
+    private fun candidatesJson(components: List<BoardComponent>): JSONArray = JSONArray().apply {
+        components.forEach { c ->
+            put(JSONObject().apply {
+                put("id", c.id)
+                put("designator", c.designator)
+                put("kind", c.kind.name)
+                put("x", c.box.x.toDouble())
+                put("y", c.box.y.toDouble())
+                put("w", c.box.w.toDouble())
+                put("h", c.box.h.toDouble())
+                c.visibleDamage?.let { put("visibleDamage", it) }
+            })
+        }
     }
 
     /** POST /chat/completions y devuelve el contenido del asistente. */
@@ -224,15 +293,28 @@ Use tight normalized boxes (0..1, origin top-left) around each damaged component
         private const val SYSTEM_PROMPT = """You are BoardPilot, an expert electronics repair copilot for component-level PCB diagnosis.
 You receive TWO images of the same board: first the clean photo, second the same photo annotated with candidate regions from a segmentation model; plus the candidate list as JSON (normalized 0..1 coordinates, origin top-left) and a symptom. Candidates are visual regions and may be wrong or incomplete; use the clean photo (labels can hide detail) to interpret what each region really is.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
-{"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":""}
+{"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":""}
 Rules:
 - FIRST scan the ENTIRE photo for visible damage: burnt/charred/blackened components or PCB areas, bulging or leaking capacitors, cracked or melted parts, heavy corrosion. For every candidate that is visibly damaged add a "damages" entry describing it. A visibly burnt or exploded component is the strongest evidence there is: rank its hypothesis FIRST with the highest confidence and target it with the first measurement.
 - If visible damage has NO candidate box around it, report it in "unmappedDamage" with a tight normalized box (x,y,w,h in 0..1) around the damaged component/area; in that case you may reference that region as componentId "dmg1-spark" in hypotheses and measurements. If there is no unmapped damage, set "unmappedDamage" to null.
-- Only use componentId values from the candidate list (plus "dmg1-spark" when you reported unmappedDamage). Refer to components by their candidate designator; never invent silkscreen reference designators.
-- At most 4 hypotheses ranked by likelihood for a dead switch-mode power supply (consider fuse, bridge rectifier, bulk capacitor, switching MOSFET short, startup resistor, PWM controller supply, optocoupler/feedback, secondary diodes and output capacitors) adapted to what is actually visible.
-- At most 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis and one component, and describes what normal vs abnormal looks like on the meter.
+- componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts; never invent silkscreen reference designators.
+- At most 4 hypotheses ranked by likelihood for the symptom (on a dead switch-mode power supply consider fuse, bridge rectifier, bulk capacitor, switching MOSFET short, startup resistor, PWM controller supply, optocoupler/feedback, secondary diodes and output capacitors) adapted to what is actually visible.
+- For each hypothesis, "fix" says what to replace or repair if it is confirmed, with a generic replacement spec when it applies (part type, key ratings, package and a common part number as an example).
+- Whenever you give hypotheses, also give between 1 and 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
 - Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If the photo or candidates are insufficient, return empty arrays and explain in needMoreEvidence what photo/measurement you need.
-- All user-visible strings (title, rationale, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE."""
+- All user-visible strings (title, rationale, fix, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE."""
+
+        // Mismo prompt que tools/smoke_spark.py --plan (mantener en sync).
+        private const val PLAN_PROMPT = """You are BoardPilot, an expert electronics repair copilot guiding a technician with a multimeter, one measurement at a time.
+You receive the clean photo of a board, its candidate components (JSON, normalized 0..1 boxes, origin top-left), the symptom, the current fault hypotheses (with ids and confidence) and the measurements already done with their results. Propose the NEXT measurements that best confirm or rule out the hypotheses, most informative first.
+Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
+{"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"needMoreEvidence":""}
+Rules:
+- Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list and one componentId exactly as in the candidate list.
+- kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.
+- Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
+- If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
+- All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE."""
     }
 }

@@ -36,6 +36,8 @@ data class Hypothesis(
     val confidence: Double,
     val rationale: String,
     val confirmedByMeasurement: Boolean = false,
+    /** Que reemplazar o reparar si se confirma (sugerencia del modelo; vacio en el demo). */
+    val fix: String = "",
 )
 
 enum class MeasurementKind { CONTINUITY, RESISTANCE, VOLTAGE_DC, DIODE }

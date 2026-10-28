@@ -67,6 +67,19 @@ class DiagnosisEngine(
         )
     }
 
+    /**
+     * Mediciones nuevas (pedidas a Muse Spark cuando no vino ninguna o se
+     * agotaron sin veredicto): solo sobre las hipotesis cargadas.
+     */
+    fun addRequests(requests: List<MeasurementRequest>) {
+        check(session.stage == Stage.HYPOTHESES) { "Las mediciones nuevas se suman sobre las hipotesis" }
+        val known = session.hypotheses.map { it.id }.toSet()
+        val fresh = requests.filter { it.targetHypothesisId in known }
+        if (fresh.isNotEmpty()) {
+            session = session.copy(pendingRequests = session.pendingRequests + fresh)
+        }
+    }
+
     fun startMeasuring() {
         check(session.stage == Stage.HYPOTHESES) { "No hay hipotesis cargadas" }
         check(session.pendingRequests.isNotEmpty()) { "El playbook no trae mediciones" }
@@ -95,7 +108,10 @@ class DiagnosisEngine(
             hypotheses = updated,
             pendingRequests = session.pendingRequests.drop(1),
             safetyConfirmedForCurrent = false,
-            results = session.results + result,
+            // El resultado guarda que se midio, para poder pedir las siguientes mediciones.
+            results = session.results + result.copy(
+                note = result.note.ifBlank { "${current.kind} ${current.componentId}: ${current.instruction}" },
+            ),
             stage = nextStage,
             verdictComponentId = if (nextStage == Stage.VERDICT) leader?.componentId else null,
         )

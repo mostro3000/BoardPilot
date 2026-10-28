@@ -58,13 +58,87 @@ class SparkOutputParserTest {
               {"id":"m1","componentId":"q99","kind":"RESISTANCE","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
               {"id":"m2","componentId":"trf1-sam0","kind":"MAGIA","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
               {"id":"m3","componentId":"trf1-sam0","kind":"DIODE","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"nope"},
-              {"id":"m4","componentId":"trf1-sam0","kind":"continuity","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"}
+              {"id":"m4","componentId":"trf1-sam0","kind":"continuity","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
+              {"id":"m5","componentId":"cyl5-sam7","kind":"DIODE","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"nope"}
             ]}
         """.trimIndent()
         val d = SparkOutputParser.parse(json, components)
         assertEquals(listOf("h1"), d.hypotheses.map { it.id })
-        assertEquals(listOf("m4"), d.requests.map { it.id })
-        assertEquals(MeasurementKind.CONTINUITY, d.requests[0].kind)
+        // m3 tiene destino roto pero mide el componente de h1: se conserva para h1.
+        // m5 tiene destino roto y su componente no tiene hipotesis: se descarta.
+        assertEquals(listOf("m3", "m4"), d.requests.map { it.id })
+        assertEquals("h1", d.requests[0].targetHypothesisId)
+        assertEquals(MeasurementKind.CONTINUITY, d.requests[1].kind)
+    }
+
+    @Test
+    fun `acepta el designador en vez del id y sinonimos del tipo de medicion`() {
+        val json = """
+            {"hypotheses":[
+              {"id":"h1","title":"Bulk","componentId":"CYL 5","confidence":0.5,"rationale":"r","fix":"Reemplazar por 22 uF 400 V 105 C"}
+            ],"measurements":[
+              {"id":"m1","componentId":"cyl5","kind":"Continuidad","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
+              {"id":"m2","componentId":"CYL 5","kind":"Tensión continua","instruction":"i","expected":"310 V","fault":"0 V","targetHypothesisId":"h1"},
+              {"id":"m3","componentId":"cyl5-sam7","kind":"ohms","instruction":"i","targetHypothesisId":"h1"},
+              {"id":"m4","componentId":"cyl5-sam7","kind":"VOLTAGE_AC","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
+              {"id":"m5","componentId":"cyl5-sam7","kind":"tensión alterna","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"}
+            ]}
+        """.trimIndent()
+        val d = SparkOutputParser.parse(json, components)
+        assertEquals("cyl5-sam7", d.hypotheses.single().componentId)
+        assertEquals("Reemplazar por 22 uF 400 V 105 C", d.hypotheses.single().fix)
+        // Las mediciones en alterna (red electrica) se rechazan siempre.
+        assertEquals(listOf("m1", "m2", "m3"), d.requests.map { it.id })
+        assertEquals(
+            listOf(MeasurementKind.CONTINUITY, MeasurementKind.VOLTAGE_DC, MeasurementKind.RESISTANCE),
+            d.requests.map { it.kind },
+        )
+        assertEquals("310 V", d.requests[1].normalDescription)
+        assertEquals("0 V", d.requests[1].abnormalDescription)
+        assertEquals("", d.requests[2].normalDescription)
+        assertEquals(SafetyGate.LIVE_VOLTAGE, d.requests[1].gate)
+    }
+
+    @Test
+    fun `tipos de medicion por nombre`() {
+        assertEquals(MeasurementKind.DIODE, SparkOutputParser.parseKind("diode test"))
+        assertEquals(MeasurementKind.VOLTAGE_DC, SparkOutputParser.parseKind("voltage"))
+        assertEquals(MeasurementKind.VOLTAGE_DC, SparkOutputParser.parseKind("DC voltage"))
+        assertEquals(MeasurementKind.RESISTANCE, SparkOutputParser.parseKind("Resistencia"))
+        assertEquals(MeasurementKind.CONTINUITY, SparkOutputParser.parseKind("continuity check"))
+        assertNull(SparkOutputParser.parseKind("AC voltage"))
+        assertNull(SparkOutputParser.parseKind("capacitance"))
+        assertNull(SparkOutputParser.parseKind(""))
+    }
+
+    @Test
+    fun `plan de mediciones siguientes sobre hipotesis cargadas`() {
+        val hypotheses = listOf(
+            Hypothesis("h1", "Bulk", "cyl5-sam7", 0.6, "r"),
+            Hypothesis("h2", "Primario", "trf1-sam0", 0.4, "r"),
+        )
+        val json = """
+            {"measurements":[
+              {"id":"m1","componentId":"TRF 1","kind":"RESISTANCE","instruction":"Bobinado primario","normal":"pocos ohm","abnormal":"abierto","targetHypothesisId":"h2"},
+              {"id":"m2","componentId":"cyl5-sam7","kind":"DIODE","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
+              {"id":"m3","componentId":"q99","kind":"DIODE","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
+              {"id":"m4","componentId":"cyl5-sam7","kind":"RESISTANCE","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"},
+              {"id":"m5","componentId":"cyl5-sam7","kind":"CONTINUITY","instruction":"i","normal":"n","abnormal":"a","targetHypothesisId":"h1"}
+            ],"needMoreEvidence":""}
+        """.trimIndent()
+        val plan = SparkOutputParser.parsePlan(json, components, hypotheses, takenIds = setOf("m1", "m2"))
+        // Hasta 3, sin repetir ids ya usados y sin componentes inventados.
+        assertEquals(3, plan.requests.size)
+        assertEquals("trf1-sam0", plan.requests[0].componentId)
+        assertTrue(plan.requests.none { it.id == "m1" || it.id == "m2" })
+        assertEquals(plan.requests.size, plan.requests.map { it.id }.distinct().size)
+        assertNull(plan.needMoreEvidence)
+        val empty = SparkOutputParser.parsePlan(
+            """{"measurements":[],"needMoreEvidence":"Foto del lado soldaduras"}""",
+            components, hypotheses, emptySet(),
+        )
+        assertTrue(empty.requests.isEmpty())
+        assertEquals("Foto del lado soldaduras", empty.needMoreEvidence)
     }
 
     @Test

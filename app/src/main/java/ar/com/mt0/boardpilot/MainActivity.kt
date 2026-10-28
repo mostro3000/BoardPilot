@@ -151,6 +151,7 @@ import ar.com.mt0.boardpilot.domain.SamBox
 import ar.com.mt0.boardpilot.domain.SamOutputParser
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
 import ar.com.mt0.boardpilot.domain.SparkOutputParser
+import ar.com.mt0.boardpilot.domain.SparkPlan
 import ar.com.mt0.boardpilot.domain.Stage
 import ar.com.mt0.boardpilot.domain.ThemeMode
 import ar.com.mt0.boardpilot.domain.TitleTapDetector
@@ -383,6 +384,9 @@ fun BoardPilotApp(
     // Pedidos en vuelo por proyecto: el boton ocupado es solo el de ese proyecto.
     val mappingBusy = remember { mutableStateListOf<String>() }
     val sparkBusy = remember { mutableStateListOf<String>() }
+    // Mediciones siguientes pedidas a Muse Spark, y lo que respondio si no propuso ninguna.
+    val planBusy = remember { mutableStateListOf<String>() }
+    val sparkNotes = remember { mutableStateMapOf<String, String>() }
     val referenceBusy = remember { mutableStateListOf<String>() }
     var symptomDraft by rememberSaveable { mutableStateOf("") }
     var mappingError by remember { mutableStateOf<String?>(null) }
@@ -504,6 +508,7 @@ fun BoardPilotApp(
             )
         }
         store.deleteReference(id)
+        sparkNotes.remove(id)
         referenceBitmap = null
         mappingError = null
         referenceError = null
@@ -656,6 +661,16 @@ fun BoardPilotApp(
         }
     }
 
+    /** Pide a Muse Spark las siguientes mediciones sobre las hipotesis del motor. */
+    suspend fun planFor(client: MetaSparkClient, bmp: Bitmap, engine: DiagnosisEngine): SparkPlan {
+        val s = engine.session
+        val text = client.planMeasurements(bmp, s.components, s.symptom, s.hypotheses, s.results, language)
+        return SparkOutputParser.parsePlan(
+            text, s.components, s.hypotheses,
+            takenIds = (s.pendingRequests.map { it.id } + s.results.map { it.requestId }).toSet(),
+        )
+    }
+
     /** Hipotesis y mediciones en vivo con Muse Spark sobre el mapeo SAM. */
     fun startSpark(project: RepairProject) {
         val id = project.id
@@ -705,11 +720,53 @@ fun BoardPilotApp(
                     }
                     engine.loadHypotheses(diagnosis.hypotheses, diagnosis.requests)
                     refresh(id)
+                    sparkNotes.remove(id)
+                    // Hipotesis sin mediciones utilizables: se piden aparte, sobre
+                    // estas hipotesis, para que el tecnico siempre sepa que medir.
+                    if (diagnosis.requests.isEmpty()) {
+                        val plan = runCatching { planFor(client, bmp, engine) }.getOrNull()
+                        if (plan != null && plan.requests.isNotEmpty()) {
+                            engine.addRequests(plan.requests)
+                            refresh(id)
+                        } else {
+                            (plan?.needMoreEvidence ?: diagnosis.needMoreEvidence)
+                                ?.let { sparkNotes[id] = it }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 if (openProjectId == id) mappingError = strings.sparkFailed
             } finally {
                 sparkBusy -= id
+            }
+        }
+    }
+
+    /** Sin mediciones pendientes ni veredicto: pide las siguientes con lo ya medido. */
+    fun askMeasurements(project: RepairProject) {
+        val id = project.id
+        val engine = engineFor(project)
+        val bmp = boardBitmap
+        val key = apiKey()
+        if (bmp == null || key == null) {
+            sparkNotes[id] = strings.askFailed
+            return
+        }
+        planBusy += id
+        photoScope.launch {
+            try {
+                val plan = planFor(MetaSparkClient(key, reasoningEffort = reasoningEffort), bmp, engine)
+                if (plan.requests.isNotEmpty()) {
+                    engine.addRequests(plan.requests)
+                    sparkNotes.remove(id)
+                    refresh(id)
+                } else {
+                    sparkNotes[id] = plan.needMoreEvidence ?: strings.noMeasurementsLive
+                }
+            } catch (e: Exception) {
+                sparkNotes[id] = strings.askFailed
+            } finally {
+                planBusy -= id
             }
         }
     }
@@ -983,6 +1040,9 @@ fun BoardPilotApp(
                         onMapRequest = { startMapping(project) },
                         sparkBusy = project.id in sparkBusy,
                         onSparkRequest = { startSpark(project) },
+                        note = sparkNotes[project.id],
+                        planBusy = project.id in planBusy,
+                        onAskMeasurements = { askMeasurements(project) },
                         referenceBitmap = referenceBitmap
                             .takeIf { project.referenceComponentId != null &&
                                 project.referenceComponentId == session.verdictComponentId },
@@ -1582,6 +1642,9 @@ private fun SessionContent(
     onMapRequest: () -> Unit,
     sparkBusy: Boolean,
     onSparkRequest: () -> Unit,
+    note: String?,
+    planBusy: Boolean,
+    onAskMeasurements: () -> Unit,
     referenceBitmap: Bitmap?,
     referenceBusy: Boolean,
     referenceError: String?,
@@ -1629,7 +1692,7 @@ private fun SessionContent(
                 Text(if (sparkBusy) strings.sparkBusy else strings.sparkGenerate)
             }
             OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
-                Text(strings.restartDemo)
+                Text(strings.startOver)
             }
         } else {
             Button(onClick = {
@@ -1641,13 +1704,49 @@ private fun SessionContent(
 
         Stage.HYPOTHESES -> {
             HypothesisList(session, strings)
-            if (session.pendingRequests.isNotEmpty()) {
-                Button(onClick = { engine.startMeasuring(); refresh() }) {
-                    Text(strings.startMeasuring)
+            val next = session.currentRequest
+            when {
+                // Hay que medir: se explica el paso y se adelanta la primera medicion.
+                next != null -> Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(strings.nextStepTitle, fontWeight = FontWeight.Bold)
+                        Text(strings.nextStepHint)
+                        Text(
+                            strings.firstMeasurement(strings.kindName(next.kind),
+                                designatorOf(session, next.componentId)),
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Button(
+                            onClick = { engine.startMeasuring(); refresh() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(strings.startMeasuring) }
+                    }
                 }
-            } else {
-                Text(strings.needMoreEvidence)
-                OutlinedButton(onClick = onRestart) { Text(strings.restartDemo) }
+                // En vivo nunca es un callejon sin salida: se piden mediciones a Muse Spark.
+                liveMapping -> Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (session.results.isEmpty()) strings.noMeasurementsLive
+                            else strings.measuredNoVerdict,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        note?.takeIf { it.isNotBlank() }?.let {
+                            Text("Muse Spark: $it", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Button(
+                            onClick = onAskMeasurements,
+                            enabled = !planBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (planBusy) strings.askingMeasurements else strings.askMeasurements) }
+                        OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
+                            Text(strings.startOver)
+                        }
+                    }
+                }
+                else -> {
+                    Text(strings.needMoreEvidence)
+                    OutlinedButton(onClick = onRestart) { Text(strings.restartDemo) }
+                }
             }
         }
 
@@ -1658,10 +1757,14 @@ private fun SessionContent(
                     Column(Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${strings.measurementTitle}: ${strings.kindName(req.kind)} " +
-                            "· ${req.componentId.uppercase()}", fontWeight = FontWeight.Bold)
+                            "· ${designatorOf(session, req.componentId)}", fontWeight = FontWeight.Bold)
                         Text(req.instruction)
-                        Text("${strings.normalDescLabel}: ${req.normalDescription}")
-                        Text("${strings.abnormalDescLabel}: ${req.abnormalDescription}")
+                        if (req.normalDescription.isNotBlank()) {
+                            Text("${strings.normalDescLabel}: ${req.normalDescription}")
+                        }
+                        if (req.abnormalDescription.isNotBlank()) {
+                            Text("${strings.abnormalDescLabel}: ${req.abnormalDescription}")
+                        }
                         Text("⚠ ${strings.gateWarning(req.gate)}",
                             fontWeight = FontWeight.Bold)
                         if (!session.safetyConfirmedForCurrent) {
@@ -1700,8 +1803,12 @@ private fun SessionContent(
             val comp = session.components.firstOrNull { it.id == session.verdictComponentId }
             Text("${strings.verdictPrefix} ${comp?.designator ?: "?"} (${comp?.kind ?: ""})",
                 fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            // En vivo, lo que Muse Spark dijo reemplazar para la hipotesis confirmada.
+            val suggested = session.hypotheses
+                .filter { it.componentId == session.verdictComponentId && it.fix.isNotBlank() }
+                .maxByOrNull { it.confidence }?.fix
             val replacementText = if (liveMapping) {
-                strings.liveReplacement(comp?.designator ?: "?")
+                suggested ?: strings.liveReplacement(comp?.designator ?: "?")
             } else {
                 DemoCaseSmps.replacement(language)
             }
@@ -1754,9 +1861,16 @@ private fun HypothesisList(session: DiagnosisSession, strings: AppStrings) {
             if (h.rationale.isNotBlank()) {
                 Text("    ${h.rationale}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (h.fix.isNotBlank()) {
+                Text("    ${strings.fixLabel}: ${h.fix}", color = MaterialTheme.colorScheme.secondary)
+            }
         }
     }
 }
+
+/** Nombre legible del componente ("CYL 2") en vez de su id interno. */
+private fun designatorOf(session: DiagnosisSession, componentId: String): String =
+    session.components.firstOrNull { it.id == componentId }?.designator ?: componentId
 
 /** Referencia generada con Muse Image: boton para pedirla y foto rotulada. */
 @Composable
