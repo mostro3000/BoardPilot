@@ -144,6 +144,7 @@ interface AppStrings {
     val eggHeader: String
     val eggCharging: String
     val eggAftermath: String
+    val eggPsu: String
     fun gateWarning(gate: SafetyGate): String
     fun stageName(stage: Stage): String
     fun kindName(kind: MeasurementKind): String
@@ -277,6 +278,7 @@ object EsStrings : AppStrings {
     override val eggHeader = "SOBRETENSIÓN // C12 FUERA DE SERVICIO"
     override val eggCharging = "24 V en un capacitor de 16 V..."
     override val eggAftermath = "Eso era C12. Hay que medir antes de energizar."
+    override val eggPsu = "FUENTE"
 
     override fun gateWarning(gate: SafetyGate): String = when (gate) {
         SafetyGate.DE_ENERGIZED ->
@@ -431,6 +433,7 @@ object EnStrings : AppStrings {
     override val eggHeader = "OVERVOLTAGE // C12 OUT OF SERVICE"
     override val eggCharging = "24 V into a 16 V capacitor..."
     override val eggAftermath = "That was C12. Always measure before powering up."
+    override val eggPsu = "PSU"
 
     override fun gateWarning(gate: SafetyGate): String = when (gate) {
         SafetyGate.DE_ENERGIZED ->
