@@ -26,3 +26,7 @@ keystore.properties
 # Kotlin / Claude Code (locales)
 .kotlin/
 .claude/worktrees/
+
+# Python (tools/)
+__pycache__/
+*.pyc

@@ -724,13 +724,21 @@ fun BoardPilotApp(
                     // Hipotesis sin mediciones utilizables: se piden aparte, sobre
                     // estas hipotesis, para que el tecnico siempre sepa que medir.
                     if (diagnosis.requests.isEmpty()) {
-                        val plan = runCatching { planFor(client, bmp, engine) }.getOrNull()
-                        if (plan != null && plan.requests.isNotEmpty()) {
-                            engine.addRequests(plan.requests)
-                            refresh(id)
-                        } else {
-                            (plan?.needMoreEvidence ?: diagnosis.needMoreEvidence)
-                                ?.let { sparkNotes[id] = it }
+                        planBusy += id
+                        try {
+                            val plan = runCatching { planFor(client, bmp, engine) }.getOrNull()
+                            // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
+                            if (engines[id] === engine) {
+                                if (plan != null && plan.requests.isNotEmpty()) {
+                                    engine.addRequests(plan.requests)
+                                    refresh(id)
+                                } else {
+                                    (plan?.needMoreEvidence ?: diagnosis.needMoreEvidence)
+                                        ?.let { sparkNotes[id] = it }
+                                }
+                            }
+                        } finally {
+                            planBusy -= id
                         }
                     }
                 }
@@ -745,6 +753,7 @@ fun BoardPilotApp(
     /** Sin mediciones pendientes ni veredicto: pide las siguientes con lo ya medido. */
     fun askMeasurements(project: RepairProject) {
         val id = project.id
+        if (id in planBusy) return
         val engine = engineFor(project)
         val bmp = boardBitmap
         val key = apiKey()
@@ -756,6 +765,8 @@ fun BoardPilotApp(
         photoScope.launch {
             try {
                 val plan = planFor(MetaSparkClient(key, reasoningEffort = reasoningEffort), bmp, engine)
+                // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
+                if (engines[id] !== engine) return@launch
                 if (plan.requests.isNotEmpty()) {
                     engine.addRequests(plan.requests)
                     sparkNotes.remove(id)
@@ -764,7 +775,7 @@ fun BoardPilotApp(
                     sparkNotes[id] = plan.needMoreEvidence ?: strings.noMeasurementsLive
                 }
             } catch (e: Exception) {
-                sparkNotes[id] = strings.askFailed
+                if (engines[id] === engine) sparkNotes[id] = strings.askFailed
             } finally {
                 planBusy -= id
             }
