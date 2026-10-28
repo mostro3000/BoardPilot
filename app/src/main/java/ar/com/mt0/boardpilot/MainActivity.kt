@@ -42,12 +42,15 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -108,11 +111,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -130,6 +137,8 @@ import ar.com.mt0.boardpilot.api.MetaSamClient
 import ar.com.mt0.boardpilot.api.MetaSparkClient
 import ar.com.mt0.boardpilot.demo.DemoCaseSmps
 import ar.com.mt0.boardpilot.domain.BoardComponent
+import ar.com.mt0.boardpilot.domain.BoardView
+import ar.com.mt0.boardpilot.domain.FitRect
 import ar.com.mt0.boardpilot.domain.CameraAction
 import ar.com.mt0.boardpilot.domain.CameraAfterRequest
 import ar.com.mt0.boardpilot.domain.ComponentKind
@@ -140,6 +149,8 @@ import ar.com.mt0.boardpilot.domain.normalizedAngle
 import ar.com.mt0.boardpilot.domain.quarterOf
 import ar.com.mt0.boardpilot.domain.PermissionGrant
 import ar.com.mt0.boardpilot.domain.PhotoLoading
+import ar.com.mt0.boardpilot.domain.ProbeGuide
+import ar.com.mt0.boardpilot.domain.ProbePoint
 import ar.com.mt0.boardpilot.domain.ProjectStatus
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
 import ar.com.mt0.boardpilot.domain.RepairProject
@@ -148,6 +159,8 @@ import ar.com.mt0.boardpilot.domain.cameraAfterRequest
 import ar.com.mt0.boardpilot.domain.permissionGrant
 import ar.com.mt0.boardpilot.domain.DiagnosisEngine
 import ar.com.mt0.boardpilot.domain.DiagnosisSession
+import ar.com.mt0.boardpilot.domain.MeasurementKind
+import ar.com.mt0.boardpilot.domain.MeasurementRequest
 import ar.com.mt0.boardpilot.domain.MeasurementOutcome
 import ar.com.mt0.boardpilot.domain.MapZoom
 import ar.com.mt0.boardpilot.domain.MeasurementResult
@@ -392,6 +405,8 @@ fun BoardPilotApp(
     // Mediciones siguientes pedidas a Muse Spark, y lo que respondio si no propuso ninguna.
     val planBusy = remember { mutableStateListOf<String>() }
     val sparkNotes = remember { mutableStateMapOf<String, String>() }
+    // Puntas sugeridas por Muse Spark (capa 2 de la guia visual), en segundo plano.
+    val probeBusy = remember { mutableStateListOf<String>() }
     val referenceBusy = remember { mutableStateListOf<String>() }
     var symptomDraft by rememberSaveable { mutableStateOf("") }
     var mappingError by remember { mutableStateOf<String?>(null) }
@@ -414,7 +429,7 @@ fun BoardPilotApp(
     // razonamiento tarda minutos y el telefono se bloqueaba esperando. Va por
     // la ventana (no por la vista) para no pisarse con el huevo de pascua.
     val requestInFlight = mappingBusy.isNotEmpty() || sparkBusy.isNotEmpty() ||
-        planBusy.isNotEmpty() || referenceBusy.isNotEmpty()
+        planBusy.isNotEmpty() || probeBusy.isNotEmpty() || referenceBusy.isNotEmpty()
     DisposableEffect(requestInFlight) {
         val window = (context as? Activity)?.window
         if (requestInFlight) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -706,6 +721,41 @@ fun BoardPilotApp(
         )
     }
 
+    /**
+     * Capa 2 de la guia visual: Muse Spark ubica las puntas de las mediciones
+     * pendientes que todavia no las tienen, en segundo plano y todas juntas.
+     * Si falla, la medicion se guia igual con la lupa y el multimetro.
+     */
+    fun requestProbes(id: String, engine: DiagnosisEngine, bmp: Bitmap, key: String) {
+        if (id in probeBusy) return
+        val missing = engine.session.pendingRequests.filter { it.probes == null }
+        if (missing.isEmpty()) return
+        probeBusy += id
+        photoScope.launch {
+            try {
+                val components = engine.session.components
+                val text = MetaSparkClient(key, reasoningEffort = reasoningEffort)
+                    .probeGuides(bmp, components, missing, language)
+                // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
+                if (engines[id] === engine) {
+                    engine.attachProbes(SparkOutputParser.parseProbes(text, components, missing))
+                    refresh(id)
+                }
+            } catch (e: Exception) {
+                // Sin puntas sugeridas queda la guia fija y el boton para reintentar.
+            } finally {
+                probeBusy -= id
+            }
+        }
+    }
+
+    /** Boton de la tarjeta de medicion: reintentar la ubicacion de las puntas. */
+    fun locateProbes(project: RepairProject) {
+        val bmp = boardBitmap ?: return
+        val key = apiKey() ?: return
+        requestProbes(project.id, engineFor(project), bmp, key)
+    }
+
     /** Hipotesis y mediciones en vivo con Muse Spark sobre el mapeo SAM. */
     fun startSpark(project: RepairProject) {
         val id = project.id
@@ -776,6 +826,8 @@ fun BoardPilotApp(
                             planBusy -= id
                         }
                     }
+                    // Donde van las puntas de estas mediciones, en segundo plano.
+                    if (engines[id] === engine) requestProbes(id, engine, bmp, key)
                 }
             } catch (e: Exception) {
                 if (openProjectId == id) mappingError = strings.sparkFailed
@@ -806,6 +858,7 @@ fun BoardPilotApp(
                     engine.addRequests(plan.requests)
                     sparkNotes.remove(id)
                     refresh(id)
+                    requestProbes(id, engine, bmp, key)
                 } else {
                     sparkNotes[id] = plan.needMoreEvidence ?: strings.noMeasurementsLive
                 }
@@ -1089,6 +1142,8 @@ fun BoardPilotApp(
                         note = sparkNotes[project.id],
                         planBusy = project.id in planBusy,
                         onAskMeasurements = { askMeasurements(project) },
+                        probesBusy = project.id in probeBusy,
+                        onLocateProbes = { locateProbes(project) },
                         referenceBitmap = referenceBitmap
                             .takeIf { project.referenceComponentId != null &&
                                 project.referenceComponentId == session.verdictComponentId },
@@ -1691,6 +1746,8 @@ private fun SessionContent(
     note: String?,
     planBusy: Boolean,
     onAskMeasurements: () -> Unit,
+    probesBusy: Boolean,
+    onLocateProbes: () -> Unit,
     referenceBitmap: Bitmap?,
     referenceBusy: Boolean,
     referenceError: String?,
@@ -1705,7 +1762,21 @@ private fun SessionContent(
     Text("${strings.symptomLabel}: ${session.symptom}")
     mappingError?.let { Text(it, color = Color(0xFFB00020)) }
     if (session.components.isNotEmpty()) {
-        BoardMap(strings, session.components, selected, boardBitmap) { selectedId = it.id }
+        // En el mapa: que medir ahora (o el veredicto), lo ya medido y el % de cada hipotesis.
+        val measuringStage = session.stage == Stage.HYPOTHESES || session.stage == Stage.MEASURING
+        val (focusId, focusLabel) = when {
+            measuringStage -> session.currentRequest?.componentId to strings.mapMeasureTag
+            session.stage == Stage.VERDICT || session.stage == Stage.REPAIR ||
+                session.stage == Stage.VERIFIED -> session.verdictComponentId to strings.mapVerdictTag
+            else -> null to null
+        }
+        BoardMap(
+            strings, session.components, selected, boardBitmap,
+            focusId = focusId,
+            focusLabel = focusLabel,
+            evidence = BoardView.measuredEvidence(session.results),
+            shares = if (measuringStage) BoardView.hypothesisShares(session.hypotheses) else emptyMap(),
+        ) { selectedId = it.id }
         selected?.let { comp ->
             Text("${comp.designator} · ${comp.kind}" +
                 (comp.visibleDamage?.let { " · ⚠ $it" } ?: ""))
@@ -1799,11 +1870,24 @@ private fun SessionContent(
         Stage.MEASURING -> {
             HypothesisList(session, strings)
             session.currentRequest?.let { req ->
+                val target = session.components.firstOrNull { it.id == req.componentId }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${strings.measurementTitle}: ${strings.kindName(req.kind)} " +
-                            "· ${designatorOf(session, req.componentId)}", fontWeight = FontWeight.Bold)
+                        val done = session.results.size
+                        Text("${strings.measurementOf(done + 1, done + session.pendingRequests.size)}: " +
+                            "${strings.kindName(req.kind)} · ${designatorOf(session, req.componentId)}",
+                            fontWeight = FontWeight.Bold)
+                        // Guia visual: la lupa junto a las instrucciones (en el demo,
+                        // sin la foto del tecnico: sus cajas no son las del demo).
+                        if (target != null) {
+                            ProbeLens(
+                                strings, boardBitmap.takeIf { liveMapping },
+                                session.components, target, req.probes,
+                            )
+                            ProbeCaption(strings, req, liveMapping, probesBusy, onLocateProbes)
+                        }
+                        MeterGuide(strings, req.kind)
                         Text(req.instruction)
                         if (req.normalDescription.isNotBlank()) {
                             Text("${strings.normalDescLabel}: ${req.normalDescription}")
@@ -1962,6 +2046,10 @@ private fun BoardMap(
     components: List<BoardComponent>,
     selected: BoardComponent?,
     bitmap: Bitmap?,
+    focusId: String? = null,
+    focusLabel: String? = null,
+    evidence: Map<String, MeasurementOutcome> = emptyMap(),
+    shares: Map<String, Int> = emptyMap(),
     onSelect: (BoardComponent) -> Unit,
 ) {
     val ratio = bitmap?.let {
@@ -1978,8 +2066,15 @@ private fun BoardMap(
             )
             .pointerInput(bitmap) { detectMapPinch({ view }) { view = it } },
     ) {
-        val w = maxWidth
-        val h = maxHeight
+        // La foto entera centrada, sin recortar: las cajas van sobre su rectangulo
+        // real (antes, con fotos muy altas o anchas, quedaban corridas).
+        val fit = if (bitmap != null) {
+            BoardView.fit(maxWidth.value, maxHeight.value, bitmap.width.toFloat(), bitmap.height.toFloat())
+        } else {
+            FitRect(0f, 0f, maxWidth.value, maxHeight.value)
+        }
+        val w = fit.width.dp
+        val h = fit.height.dp
         val accent = MaterialTheme.colorScheme.primary
         val selectedAccent = Color(0xFFFFB300)
         Box(
@@ -1990,49 +2085,82 @@ private fun BoardMap(
                 translationY = view.panY
             },
         ) {
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            components.forEach { comp ->
-                val isSel = comp.id == selected?.id
-                val compW = w * comp.box.w
-                val compH = h * comp.box.h
-                // Con dano visible el marco va en rojo de error; seleccionado pisa.
-                val frame = when {
-                    isSel -> selectedAccent
-                    comp.visibleDamage != null -> Color(0xFFB00020)
-                    else -> accent
+            Box(Modifier.offset(x = fit.left.dp, y = fit.top.dp).size(width = w, height = h)) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
                 }
-                Box(
-                    Modifier
-                        .offset(x = w * comp.box.x, y = h * comp.box.y)
-                        .size(width = compW, height = compH)
-                        .background(
-                            frame.copy(alpha = if (isSel) 0.34f else 0.16f),
-                            RoundedCornerShape(3.dp),
-                        )
-                        .border(2.dp, frame, RoundedCornerShape(3.dp))
-                        .clickable { onSelect(comp) },
-                ) {
-                    if (compW > 54.dp && compH > 26.dp) {
-                        Box(
-                            Modifier.align(Alignment.TopStart)
-                                .background(frame, RoundedCornerShape(3.dp))
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                        ) {
-                            Text(
-                                comp.designator,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSel) Color.Black else Color.White,
-                                maxLines = 1,
+                components.forEach { comp ->
+                    val isSel = comp.id == selected?.id
+                    val isFocus = comp.id == focusId
+                    val compW = w * comp.box.w
+                    val compH = h * comp.box.h
+                    // Con dano visible el marco va en rojo de error; seleccionado o
+                    // a medir (o el del veredicto) pisa en ambar.
+                    val frame = when {
+                        isSel || isFocus -> selectedAccent
+                        comp.visibleDamage != null -> Color(0xFFB00020)
+                        else -> accent
+                    }
+                    Box(
+                        Modifier
+                            .offset(x = w * comp.box.x, y = h * comp.box.y)
+                            .size(width = compW, height = compH)
+                            .background(
+                                frame.copy(alpha = if (isSel || isFocus) 0.34f else 0.16f),
+                                RoundedCornerShape(3.dp),
                             )
+                            .border(if (isFocus) 3.dp else 2.dp, frame, RoundedCornerShape(3.dp))
+                            .clickable { onSelect(comp) },
+                    ) {
+                        if (compW > 54.dp && compH > 26.dp) {
+                            Box(
+                                Modifier.align(Alignment.TopStart)
+                                    .background(frame, RoundedCornerShape(3.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                            ) {
+                                Text(
+                                    comp.designator,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel || isFocus) Color.Black else Color.White,
+                                    maxLines = 1,
+                                )
+                            }
                         }
+                    }
+                }
+                // Mapa de evidencia, encima de las cajas: lo ya medido (✓ ✗ ?), el %
+                // de cada hipotesis y la medicion en curso o el veredicto.
+                components.forEach { comp ->
+                    val left = w * comp.box.x
+                    val top = h * comp.box.y
+                    val bottom = top + h * comp.box.h
+                    val share = shares[comp.id]?.let { "$it%" }
+                    if (comp.id == focusId && focusLabel != null) {
+                        // Arriba si hay lugar (si no, debajo), con el % en la misma etiqueta.
+                        MapTag(
+                            listOfNotNull("▶ $focusLabel", share).joinToString(" · "),
+                            selectedAccent, Color.Black,
+                            if (top >= 28.dp) Modifier.offset(x = left, y = top - 2.dp).placedAbove()
+                            else Modifier.offset(x = left, y = bottom + 2.dp),
+                        )
+                    } else if (share != null) {
+                        MapTag(share, Color.Black.copy(alpha = 0.75f), Color.White,
+                            Modifier.offset(x = left, y = bottom + 2.dp))
+                    }
+                }
+                // Lo medido va encima de todo: ninguna etiqueta tapa un ✗.
+                components.forEach { comp ->
+                    evidence[comp.id]?.let { outcome ->
+                        EvidenceChip(
+                            outcome,
+                            Modifier.offset(x = w * (comp.box.x + comp.box.w) - 9.dp, y = h * comp.box.y - 9.dp),
+                        )
                     }
                 }
             }
@@ -2049,6 +2177,314 @@ private fun BoardMap(
                     .clickable { view = MapZoom() }
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             )
+        }
+    }
+}
+
+/**
+ * El contenido sube su propio alto: queda con el borde inferior en la posicion
+ * dada (encima de una caja), mida lo que mida con la letra grande del sistema.
+ */
+private fun Modifier.placedAbove(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    layout(placeable.width, placeable.height) { placeable.place(0, -placeable.height) }
+}
+
+/** Etiqueta chica sobre el mapa (% de hipotesis, "medir", "veredicto"). */
+@Composable
+private fun MapTag(text: String, background: Color, textColor: Color, modifier: Modifier) {
+    Text(
+        text,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        color = textColor,
+        maxLines = 1,
+        modifier = modifier
+            .background(background, RoundedCornerShape(3.dp))
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
+}
+
+/**
+ * Lo que dio la medicion sobre un componente: ✓ normal, ✗ anormal, ? no claro.
+ * Dibujado con trazos: con la letra grande del sistema un texto no entra.
+ */
+@Composable
+private fun EvidenceChip(outcome: MeasurementOutcome, modifier: Modifier) {
+    val fill = when (outcome) {
+        MeasurementOutcome.NORMAL -> Color(0xFF2E7D32)
+        MeasurementOutcome.ABNORMAL -> Color(0xFFB00020)
+        MeasurementOutcome.UNCLEAR -> Color(0xFFFFB300)
+    }
+    val ink = if (outcome == MeasurementOutcome.UNCLEAR) Color.Black else Color.White
+    Canvas(modifier.size(18.dp)) {
+        val r = size.minDimension / 2f
+        val c = center
+        val s = r * 0.48f
+        val w = 2.dp.toPx()
+        drawCircle(fill, r, c)
+        drawCircle(Color.White, r - 0.75.dp.toPx(), c, style = Stroke(1.5.dp.toPx()))
+        when (outcome) {
+            MeasurementOutcome.NORMAL -> {
+                val mid = Offset(c.x - s * 0.25f, c.y + s * 0.65f)
+                drawLine(ink, Offset(c.x - s, c.y), mid, w, StrokeCap.Round)
+                drawLine(ink, mid, Offset(c.x + s, c.y - s * 0.65f), w, StrokeCap.Round)
+            }
+            MeasurementOutcome.ABNORMAL -> {
+                val d = s * 0.8f
+                drawLine(ink, Offset(c.x - d, c.y - d), Offset(c.x + d, c.y + d), w, StrokeCap.Round)
+                drawLine(ink, Offset(c.x - d, c.y + d), Offset(c.x + d, c.y - d), w, StrokeCap.Round)
+            }
+            MeasurementOutcome.UNCLEAR -> {
+                // Signo de pregunta: gancho, tallo y punto.
+                drawArc(
+                    ink, startAngle = 180f, sweepAngle = 250f, useCenter = false,
+                    topLeft = Offset(c.x - s * 0.55f, c.y - s), size = Size(s * 1.1f, s * 1.0f),
+                    style = Stroke(w, cap = StrokeCap.Round),
+                )
+                drawLine(ink, Offset(c.x, c.y + s * 0.05f), Offset(c.x, c.y + s * 0.35f), w, StrokeCap.Round)
+                drawCircle(ink, w * 0.65f, Offset(c.x, c.y + s * 0.85f))
+            }
+        }
+    }
+}
+
+/** Proporcion de la lupa (ancho/alto) y del mapa del demo, que no tiene foto. */
+private const val LENS_ASPECT = 1.6f
+private const val DEMO_MAP_ASPECT = 1.5f
+
+/**
+ * Lupa de la medicion: la zona de la foto alrededor del componente medido,
+ * ampliada junto a las instrucciones, con su caja y donde va cada punta (roja
+ * y negra, con su terminal). Sin foto (demo) dibuja las cajas sobre el fondo.
+ */
+@Composable
+private fun ProbeLens(
+    strings: AppStrings,
+    bitmap: Bitmap?,
+    components: List<BoardComponent>,
+    target: BoardComponent,
+    guide: ProbeGuide?,
+) {
+    val image = remember(bitmap) { bitmap?.asImageBitmap() }
+    val measurer = rememberTextMeasurer()
+    val amber = Color(0xFFFFB300)
+    val points = guide?.points.orEmpty()
+    val photoAspect = bitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: DEMO_MAP_ASPECT
+    val region = remember(target, guide, photoAspect) {
+        BoardView.lensRegion(target.box, points.map { it.x to it.y }, photoAspect, LENS_ASPECT)
+    }
+    // La punta negra puede ir en otro componente (p. ej. la masa del primario).
+    val others = points.mapNotNull { p ->
+        components.firstOrNull { it.id == p.componentId && it.id != target.id }
+    }.distinct()
+    Canvas(
+        Modifier.fillMaxWidth()
+            .aspectRatio(LENS_ASPECT)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF380B14)),
+    ) {
+        // Zona de la foto en px y donde cae dentro de la lupa, sin deformar.
+        val dst = if (image != null) {
+            val sx = (region.x * image.width).toInt().coerceIn(0, image.width - 1)
+            val sy = (region.y * image.height).toInt().coerceIn(0, image.height - 1)
+            val sw = (region.w * image.width).toInt().coerceIn(1, image.width - sx)
+            val sh = (region.h * image.height).toInt().coerceIn(1, image.height - sy)
+            val fit = BoardView.fit(size.width, size.height, sw.toFloat(), sh.toFloat())
+            drawImage(
+                image,
+                srcOffset = IntOffset(sx, sy),
+                srcSize = IntSize(sw, sh),
+                dstOffset = IntOffset(fit.left.toInt(), fit.top.toInt()),
+                dstSize = IntSize(fit.width.toInt(), fit.height.toInt()),
+                filterQuality = FilterQuality.High,
+            )
+            fit
+        } else {
+            BoardView.fit(size.width, size.height, region.w * DEMO_MAP_ASPECT, region.h)
+        }
+        fun px(x: Float) = dst.left + (x - region.x) / region.w * dst.width
+        fun py(y: Float) = dst.top + (y - region.y) / region.h * dst.height
+        fun label(text: String, at: Offset, background: Color, color: Color) {
+            val layout = measurer.measure(
+                text, TextStyle(color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold),
+            )
+            val pad = 3.dp.toPx()
+            val lw = layout.size.width + 2 * pad
+            val lh = layout.size.height + pad
+            val x = at.x.coerceIn(0f, (size.width - lw).coerceAtLeast(0f))
+            val y = at.y.coerceIn(0f, (size.height - lh).coerceAtLeast(0f))
+            drawRoundRect(background, Offset(x, y), Size(lw, lh), CornerRadius(4.dp.toPx()))
+            drawText(layout, topLeft = Offset(x + pad, y + pad / 2))
+        }
+        fun outline(c: BoardComponent, color: Color, width: Float) {
+            val topLeft = Offset(px(c.box.x), py(c.box.y))
+            drawRect(
+                color, topLeft,
+                Size(c.box.w / region.w * dst.width, c.box.h / region.h * dst.height),
+                style = Stroke(width),
+            )
+            label(c.designator, topLeft - Offset(0f, 20.dp.toPx()), color, Color.Black)
+        }
+        others.forEach { outline(it, amber.copy(alpha = 0.7f), 2.dp.toPx()) }
+        outline(target, amber, 3.dp.toPx())
+        // Solo los marcadores: el terminal de cada punta va en la leyenda de abajo,
+        // asi nada tapa la caja ni las etiquetas en piezas chicas o placas densas.
+        val r = 11.dp.toPx()
+        fun marker(p: ProbePoint, fill: Color, tag: String) {
+            val c = Offset(px(p.x), py(p.y))
+            drawCircle(fill, r, c)
+            drawCircle(Color.White, r, c, style = Stroke(2.dp.toPx()))
+            val t = measurer.measure(
+                tag, TextStyle(color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+            )
+            drawText(t, topLeft = c - Offset(t.size.width / 2f, t.size.height / 2f))
+        }
+        guide?.red?.let { marker(it, Color(0xFFE53935), strings.redTag) }
+        guide?.black?.let { marker(it, Color(0xFF111111), strings.blackTag) }
+    }
+}
+
+/** Una linea de la leyenda de la lupa: el marcador y el terminal donde va. */
+@Composable
+private fun ProbeLegend(color: Color, tag: String, terminal: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        JackDot(color)
+        Text(if (terminal.isBlank()) tag else "$tag: $terminal", fontSize = 14.sp)
+    }
+}
+
+/**
+ * Debajo de la lupa: de donde salen las puntas (IA o demo), si se estan
+ * pidiendo, si las patas no se ven, y en diodos sin polaridad visible, que se
+ * pruebe en los dos sentidos.
+ */
+@Composable
+private fun ProbeCaption(
+    strings: AppStrings,
+    request: MeasurementRequest,
+    live: Boolean,
+    busy: Boolean,
+    onLocate: () -> Unit,
+) {
+    val guide = request.probes
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    guide?.red?.let { ProbeLegend(Color(0xFFE53935), strings.redTag, it.terminal) }
+    guide?.black?.let { ProbeLegend(Color(0xFF111111), strings.blackTag, it.terminal) }
+    when {
+        guide == null && busy -> Text(strings.probesLoading, color = muted, fontSize = 14.sp)
+        guide == null && live -> TextButton(onClick = onLocate) { Text(strings.probesLocate) }
+        guide != null && guide.points.isEmpty() ->
+            Text("⚠ ${strings.probesHidden} ${guide.note}".trim(), fontSize = 14.sp)
+        guide != null -> Text(
+            (if (live) strings.probesAiNote else strings.probesDemoNote) +
+                guide.note.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty(),
+            color = muted,
+            fontSize = 14.sp,
+        )
+    }
+    if (request.kind == MeasurementKind.DIODE &&
+        (guide == null || guide.points.isEmpty() || guide.uncertainPolarity)
+    ) {
+        Text(strings.diodeBothWays, color = muted, fontSize = 14.sp)
+    }
+}
+
+/** Como preparar el multimetro: el selector segun el tipo y la entrada de cada punta. */
+@Composable
+private fun MeterGuide(strings: AppStrings, kind: MeasurementKind) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        MeterDial(kind, Modifier.size(52.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(strings.meterMode(kind), fontWeight = FontWeight.Medium)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                JackDot(Color(0xFFE53935))
+                Text(strings.redJack, fontSize = 14.sp)
+                Spacer(Modifier.width(6.dp))
+                JackDot(Color(0xFF111111))
+                Text(strings.blackJack, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun JackDot(color: Color) {
+    Box(
+        Modifier.size(12.dp)
+            .background(color, CircleShape)
+            .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape),
+    )
+}
+
+/** El simbolo del selector del multimetro: Ω, pitido, diodo o V de continua. */
+@Composable
+private fun MeterDial(kind: MeasurementKind, modifier: Modifier) {
+    val ink = MaterialTheme.colorScheme.onSurface
+    val ring = MaterialTheme.colorScheme.primary
+    val measurer = rememberTextMeasurer()
+    Canvas(modifier) {
+        val c = center
+        val r = size.minDimension / 2f
+        drawCircle(ring, r - 1.5.dp.toPx(), c, style = Stroke(3.dp.toPx()))
+        val s = r * 0.45f
+        val stroke = 2.4.dp.toPx()
+        fun symbol(text: String, shift: Offset = Offset.Zero) {
+            val layout = measurer.measure(
+                text, TextStyle(color = ink, fontSize = 22.sp, fontWeight = FontWeight.Bold),
+            )
+            drawText(layout, topLeft = c + shift - Offset(layout.size.width / 2f, layout.size.height / 2f))
+        }
+        when (kind) {
+            MeasurementKind.RESISTANCE -> symbol("Ω")
+            MeasurementKind.CONTINUITY -> {
+                // Un punto y tres ondas: el pitido.
+                val dot = Offset(c.x - s * 0.8f, c.y)
+                drawCircle(ink, stroke * 0.9f, dot)
+                for (i in 1..3) {
+                    val rr = s * 0.42f * i
+                    drawArc(
+                        ink, startAngle = -45f, sweepAngle = 90f, useCenter = false,
+                        topLeft = Offset(dot.x - rr, dot.y - rr), size = Size(rr * 2, rr * 2),
+                        style = Stroke(stroke, cap = StrokeCap.Round),
+                    )
+                }
+            }
+            MeasurementKind.DIODE -> {
+                // Triangulo hacia el catodo y su barra, con las dos patas.
+                val path = Path().apply {
+                    moveTo(c.x - s * 0.7f, c.y - s * 0.7f)
+                    lineTo(c.x + s * 0.4f, c.y)
+                    lineTo(c.x - s * 0.7f, c.y + s * 0.7f)
+                    close()
+                }
+                drawPath(path, ink)
+                drawLine(ink, Offset(c.x + s * 0.55f, c.y - s * 0.75f),
+                    Offset(c.x + s * 0.55f, c.y + s * 0.75f), stroke * 1.2f)
+                drawLine(ink, Offset(c.x - s * 1.15f, c.y), Offset(c.x - s * 0.7f, c.y), stroke)
+                drawLine(ink, Offset(c.x + s * 0.55f, c.y), Offset(c.x + s * 1.05f, c.y), stroke)
+            }
+            MeasurementKind.VOLTAGE_DC -> {
+                // "V" y el simbolo de continua: linea llena sobre linea punteada.
+                symbol("V", Offset(-s * 0.5f, 0f))
+                val x0 = c.x + s * 0.05f
+                val x1 = c.x + s * 1.05f
+                drawLine(ink, Offset(x0, c.y - s * 0.25f), Offset(x1, c.y - s * 0.25f), stroke)
+                val dash = (x1 - x0) / 5f
+                for (i in 0 until 3) {
+                    val dx = x0 + i * dash * 2
+                    drawLine(ink, Offset(dx, c.y + s * 0.2f), Offset(dx + dash, c.y + s * 0.2f), stroke)
+                }
+            }
         }
     }
 }

@@ -41,9 +41,13 @@ for another measurement or photo instead of inventing an answer.
    hypotheses, each with its confidence, rationale and the concrete fix if confirmed
    (part type, ratings, package, an example part number).
 5. **Guided measurements** — one at a time: continuity, resistance, diode test or DC
-   voltage, with where to put the probes and what a normal vs. abnormal reading looks
-   like. Every measurement is behind a **safety gate chosen by the code, never by the
-   model**. Each result updates the hypotheses deterministically.
+   voltage, with what a normal vs. abnormal reading looks like. Every measurement is
+   behind a **safety gate chosen by the code, never by the model**, and each result
+   updates the hypotheses deterministically. A **visual guide** shows a magnified
+   lens of the component next to the instructions, the meter setup (dial and
+   VΩ/COM jacks) and, from Muse Spark, where the red and black probes go, validated
+   against the component boxes and labeled as AI-suggested. The board map marks what
+   to measure now, each hypothesis' % and the evidence so far (✓ ✗ ?).
 6. **Re-plan (Muse Spark)** — if the measurements run out without a verdict, the agent
    asks for the next ones, passing the hypotheses and everything already measured with
    its result.
@@ -63,7 +67,7 @@ ids out of the texts the technician reads.
 | Model | Endpoint | Role |
 |---|---|---|
 | `sam-3.1` | `POST /v1/responses` (streaming) | Component segmentation → overlay and candidate list |
-| `muse-spark-1.3` | `POST /v1/chat/completions` (multimodal) | Damage pre-scan, ranked hypotheses with fixes, measurement plans and re-planning |
+| `muse-spark-1.3` | `POST /v1/chat/completions` (multimodal) | Damage pre-scan, ranked hypotheses with fixes, measurement plans and re-planning, probe placement |
 | `muse-image-1.0` | `POST /v1/responses` | Reference image of the repaired board |
 
 Each model is part of the core loop: without SAM there is no component map, without
@@ -84,7 +88,8 @@ documentation only before it); commit dates are the evidence.
   in the SAM candidates; visible-damage pre-scan; configurable reasoning effort; Muse
   Image repair reference; "My repairs" saved projects; free crop/rotate and pinch zoom;
   measurement re-planning with concrete fixes; full-resolution camera capture with EXIF
-  orientation.
+  orientation; visual measurement guide (lens, meter setup, evidence map and
+  AI-suggested probe points).
 
 The day-by-day diary with measurements, decisions and live test results is in
 [`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md) (Spanish).

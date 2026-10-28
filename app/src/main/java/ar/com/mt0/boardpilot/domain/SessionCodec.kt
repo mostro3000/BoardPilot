@@ -50,15 +50,19 @@ object SessionCodec {
                     enc(request.id), enc(request.componentId), request.kind.name,
                     enc(request.instruction), enc(request.normalDescription),
                     enc(request.abnormalDescription), request.gate.name,
-                    enc(request.targetHypothesisId),
+                    enc(request.targetHypothesisId), encProbes(request.probes),
                 ).joinToString("|"),
             )
         }
 
         line(session.results.size.toString())
         session.results.forEach { result ->
-            line(listOf(enc(result.requestId), result.outcome.name, enc(result.note))
-                .joinToString("|"))
+            line(
+                listOf(
+                    enc(result.requestId), result.outcome.name, enc(result.note),
+                    enc(result.componentId),
+                ).joinToString("|"),
+            )
         }
     }.trimEnd()
 
@@ -99,7 +103,8 @@ object SessionCodec {
             )
         }
         val requests = List(cursor.nextCount()) {
-            val fields = cursor.nextFields(8)
+            // Las sesiones guardadas antes de la guia de puntas traen 8 campos.
+            val fields = cursor.nextFields(8, 9)
             MeasurementRequest(
                 id = dec(fields[0]),
                 componentId = dec(fields[1]),
@@ -109,14 +114,17 @@ object SessionCodec {
                 abnormalDescription = dec(fields[5]),
                 gate = SafetyGate.valueOf(fields[6]),
                 targetHypothesisId = dec(fields[7]),
+                probes = fields.getOrNull(8)?.let(::decProbes),
             )
         }
         val results = List(cursor.nextCount()) {
-            val fields = cursor.nextFields(3)
+            // Y los resultados, 3 (sin el componente medido).
+            val fields = cursor.nextFields(3, 4)
             MeasurementResult(
                 requestId = dec(fields[0]),
                 outcome = MeasurementOutcome.valueOf(fields[1]),
                 note = dec(fields[2]),
+                componentId = fields.getOrNull(3)?.let(::dec).orEmpty(),
             )
         }
         return DiagnosisSession(
@@ -148,6 +156,31 @@ object SessionCodec {
 
     private fun decNullable(value: String): String? =
         if (value == NULL_TOKEN) null else dec(value)
+
+    /**
+     * Guia de puntas en un solo campo: "roja;negra;nota" dentro de Base64, cada
+     * punta "componente,x,y,terminal" (o `~`). Base64 URL no usa `,`, `;` ni `~`.
+     */
+    private fun encProbes(guide: ProbeGuide?): String {
+        guide ?: return NULL_TOKEN
+        fun point(p: ProbePoint?): String = p?.let {
+            listOf(enc(it.componentId), it.x.toString(), it.y.toString(), enc(it.terminal))
+                .joinToString(",")
+        } ?: NULL_TOKEN
+        return enc(listOf(point(guide.red), point(guide.black), enc(guide.note)).joinToString(";"))
+    }
+
+    private fun decProbes(value: String): ProbeGuide? {
+        if (value == NULL_TOKEN) return null
+        val parts = dec(value).split(";")
+        require(parts.size == 3) { "guia de puntas invalida" }
+        fun point(text: String): ProbePoint? = if (text == NULL_TOKEN) null else {
+            val f = text.split(",")
+            require(f.size == 4) { "punta invalida" }
+            ProbePoint(dec(f[0]), f[1].toFloat(), f[2].toFloat(), dec(f[3]))
+        }
+        return ProbeGuide(point(parts[0]), point(parts[1]), dec(parts[2]))
+    }
 
     private class Cursor(private val lines: List<String>) {
         private var index = 0

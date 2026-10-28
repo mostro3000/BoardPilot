@@ -8,6 +8,8 @@ import ar.com.mt0.boardpilot.domain.Hypothesis
 import ar.com.mt0.boardpilot.domain.MeasurementKind
 import ar.com.mt0.boardpilot.domain.MeasurementRequest
 import ar.com.mt0.boardpilot.domain.NormBox
+import ar.com.mt0.boardpilot.domain.ProbeGuide
+import ar.com.mt0.boardpilot.domain.ProbePoint
 import ar.com.mt0.boardpilot.domain.SafetyGate
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 
@@ -63,6 +65,7 @@ object DemoCaseSmps {
                 normalDescription = "Pita / cercano a 0 Ω: fusible sano.",
                 abnormalDescription = "Abierto (OL): fusible quemado.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_f1",
+                probes = fuseProbes("extremo izquierdo", "extremo derecho"),
             ),
             MeasurementRequest(
                 id = "m_q3", componentId = "q3", kind = MeasurementKind.RESISTANCE,
@@ -70,6 +73,7 @@ object DemoCaseSmps {
                 normalDescription = "Resistencia alta o caída de diodo (~0,4–0,6 V en un sentido).",
                 abnormalDescription = "Corto: ~0 Ω / pita en ambos sentidos. MOSFET destruido.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_q3",
+                probes = mosfetProbes("drenaje (pata central)", "− de C12 (masa del primario)"),
             ),
         )
         AppLanguage.EN -> listOf(
@@ -79,6 +83,7 @@ object DemoCaseSmps {
                 normalDescription = "Beeps / near 0 Ω: fuse is good.",
                 abnormalDescription = "Open (OL): fuse blown.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_f1",
+                probes = fuseProbes("left end", "right end"),
             ),
             MeasurementRequest(
                 id = "m_q3", componentId = "q3", kind = MeasurementKind.RESISTANCE,
@@ -86,9 +91,22 @@ object DemoCaseSmps {
                 normalDescription = "High resistance or a diode drop (~0.4–0.6 V one way).",
                 abnormalDescription = "Short: ~0 Ω / beeps both ways. MOSFET destroyed.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_q3",
+                probes = mosfetProbes("drain (middle pin)", "C12 − (primary ground)"),
             ),
         )
     }
+
+    // Puntas fijas del caso demo (en vivo las sugiere Muse Spark): una en cada
+    // extremo de F1; en Q3, roja en el drenaje y negra en el negativo de C12.
+    private fun fuseProbes(red: String, black: String) = ProbeGuide(
+        ProbePoint("f1", 0.05f, 0.11f, red),
+        ProbePoint("f1", 0.19f, 0.11f, black),
+    )
+
+    private fun mosfetProbes(red: String, black: String) = ProbeGuide(
+        ProbePoint("q3", 0.63f, 0.31f, red),
+        ProbePoint("c12", 0.33f, 0.29f, black),
+    )
 
     fun symptom(language: AppLanguage): String = when (language) {
         AppLanguage.ES -> "Fuente de TV que no enciende, sin standby"

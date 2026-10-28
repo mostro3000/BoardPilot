@@ -41,9 +41,13 @@ medición o foto en vez de inventar.
    cada una con su confianza, su fundamento y qué reemplazar si se confirma (tipo de
    pieza, valores, encapsulado y un número de parte de ejemplo).
 5. **Mediciones guiadas** — una por vez: continuidad, resistencia, diodo o tensión DC, con
-   dónde poner las puntas y qué lectura es normal o anormal. Cada medición pasa por una
-   **compuerta de seguridad que fija el código, nunca el modelo**. Cada resultado
-   actualiza las hipótesis de forma determinística.
+   qué lectura es normal o anormal. Cada medición pasa por una **compuerta de seguridad
+   que fija el código, nunca el modelo**, y cada resultado actualiza las hipótesis de
+   forma determinística. Una **guía visual** muestra una lupa del componente junto a las
+   instrucciones, cómo preparar el multímetro (selector y entradas VΩ/COM) y, según Muse
+   Spark, dónde van la punta roja y la negra, validado contra las cajas de los
+   componentes y rotulado como sugerencia de IA. El mapa de la placa marca qué medir
+   ahora, el % de cada hipótesis y la evidencia reunida (✓ ✗ ?).
 6. **Replanificación (Muse Spark)** — si las mediciones se agotan sin veredicto, el agente
    pide las siguientes con las hipótesis y todo lo ya medido con su resultado.
 7. **Veredicto y referencia (Muse Image)** — el componente confirmado, el reemplazo
@@ -61,7 +65,7 @@ estables y saca los ids internos de los textos que lee el técnico.
 | Modelo | Endpoint | Rol |
 |---|---|---|
 | `sam-3.1` | `POST /v1/responses` (streaming) | Segmentación de componentes → overlay y lista de candidatos |
-| `muse-spark-1.3` | `POST /v1/chat/completions` (multimodal) | Pre-escaneo de daño, hipótesis con su reemplazo, plan de mediciones y replanificación |
+| `muse-spark-1.3` | `POST /v1/chat/completions` (multimodal) | Pre-escaneo de daño, hipótesis con su reemplazo, plan de mediciones y replanificación, ubicación de las puntas |
 | `muse-image-1.0` | `POST /v1/responses` | Imagen de referencia de la placa reparada |
 
 Cada modelo es parte del núcleo del flujo: sin SAM no hay mapa de componentes, sin Muse
@@ -83,7 +87,9 @@ son la evidencia.
   Muse Spark anclado a los candidatos de SAM; pre-escaneo de daño visible; esfuerzo de
   razonamiento configurable; referencia de reparación con Muse Image; proyectos guardados
   "Mis reparaciones"; recorte y giro libres y zoom con dos dedos; replanificación de
-  mediciones con reemplazos concretos; foto completa de cámara con orientación EXIF.
+  mediciones con reemplazos concretos; foto completa de cámara con orientación EXIF;
+  guía visual de mediciones (lupa, multímetro, mapa de evidencia y puntas sugeridas por
+  IA).
 
 El diario día por día, con mediciones, decisiones y resultados de las pruebas en vivo,
 está en [`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md).

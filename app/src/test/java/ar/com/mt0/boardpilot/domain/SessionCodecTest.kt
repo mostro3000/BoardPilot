@@ -71,4 +71,34 @@ class SessionCodecTest {
         }
         assertEquals("", SessionCodec.decode(legacy).hypotheses.single().fix)
     }
+
+    @Test
+    fun `guia de puntas visible u oculta y sesiones viejas sin puntas`() {
+        val base = DemoCaseSmps.requests(AppLanguage.ES).first()
+        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
+            components = DemoCaseSmps.components(AppLanguage.ES),
+            hypotheses = DemoCaseSmps.hypotheses(AppLanguage.ES),
+            pendingRequests = listOf(
+                base,
+                base.copy(id = "m_c12", probes = ProbeGuide(null, null, "Patas debajo;\nlado, soldaduras")),
+                base.copy(id = "m_q3", probes = null),
+            ),
+            results = listOf(MeasurementResult("m0", MeasurementOutcome.NORMAL, "medido", "f1")),
+            stage = Stage.HYPOTHESES,
+        )
+        val text = SessionCodec.encode(session)
+        assertEquals(session, SessionCodec.decode(text))
+        // Formato anterior: mediciones de 8 campos y resultados de 3.
+        val legacy = text.lines().joinToString("\n") { line ->
+            val parts = line.split("|")
+            when (parts.size) {
+                9 -> parts.take(8).joinToString("|")
+                4 -> parts.take(3).joinToString("|")
+                else -> line
+            }
+        }
+        val old = SessionCodec.decode(legacy)
+        assertEquals(listOf(null, null, null), old.pendingRequests.map { it.probes })
+        assertEquals("", old.results.single().componentId)
+    }
 }

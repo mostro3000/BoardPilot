@@ -1,6 +1,7 @@
 package ar.com.mt0.boardpilot.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -212,6 +213,43 @@ class SparkOutputParserTest {
         assertEquals("línea\ncon \"comillas\"", v["a"])
         assertEquals(listOf(1.0, -2.5, true, null), v["b"])
         assertEquals(100.0, (v["c"] as Map<*, *>)["d"])
+    }
+
+    @Test
+    fun `puntas validadas contra la foto`() {
+        val m1 = MeasurementRequest(
+            "m1", "cyl5-sam7", MeasurementKind.DIODE, "i", "n", "a", SafetyGate.DE_ENERGIZED, "h1",
+        )
+        val (m2, m3, m4) = listOf("m2", "m3", "m4").map { m1.copy(id = it) }
+        val json = """
+            {"probes":[
+              {"measurementId":"m1","red":{"componentId":"cyl5-sam7","x":0.32,"y":0.38,"terminal":"ánodo?"},"black":{"componentId":"TRF 1","x":0.30,"y":0.49,"terminal":"masa"},"visible":true,"note":""},
+              {"measurementId":"m2","red":{"x":0.33,"y":0.36,"terminal":"+"},"black":{"componentId":"cyl5-sam7","x":0.90,"y":0.10,"terminal":"-"},"visible":true},
+              {"measurementId":"m3","visible":false,"note":"Patas debajo de cyl5-sam7: medir del lado de soldaduras."},
+              {"measurementId":"m4","red":{"x":0.40,"y":0.38,"terminal":"a"},"black":{"x":0.40,"y":0.38,"terminal":"b"}},
+              {"measurementId":"m9","red":{"x":0.4,"y":0.38,"terminal":"x"}},
+              {"measurementId":"m1","red":{"x":0.5,"y":0.4,"terminal":"repetida"}}
+            ]}
+        """.trimIndent()
+        val guides = SparkOutputParser.parseProbes(json, components, listOf(m1, m2, m3, m4))
+
+        val g1 = guides.getValue("m1")
+        assertEquals(ProbePoint("cyl5-sam7", 0.32f, 0.38f, "ánodo?"), g1.red)
+        // La negra en otro componente, nombrado por su designador.
+        assertEquals("trf1-sam0", g1.black?.componentId)
+        assertTrue(g1.uncertainPolarity)
+        // Sin componente: el medido. Fuera de su caja: se descarta solo esa punta.
+        val g2 = guides.getValue("m2")
+        assertEquals("cyl5-sam7", g2.red?.componentId)
+        assertNull(g2.black)
+        // Terminales que no se ven: sin puntos, con la nota (sin ids internos).
+        val g3 = guides.getValue("m3")
+        assertTrue(g3.points.isEmpty())
+        assertEquals("Patas debajo de CYL 5: medir del lado de soldaduras.", g3.note)
+        // Las dos puntas en el mismo lugar y sin nota: no hay guia.
+        assertFalse("m4" in guides)
+        assertEquals(setOf("m1", "m2", "m3"), guides.keys)
+        assertTrue(SparkOutputParser.parseProbes("sin json", components, listOf(m1)).isEmpty())
     }
 
     @Test

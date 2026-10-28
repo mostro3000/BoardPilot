@@ -80,6 +80,16 @@ class DiagnosisEngine(
         }
     }
 
+    /** Guia de puntas sugerida para mediciones pendientes (por id); no cambia la etapa. */
+    fun attachProbes(guides: Map<String, ProbeGuide>) {
+        if (guides.isEmpty()) return
+        session = session.copy(
+            pendingRequests = session.pendingRequests.map { request ->
+                guides[request.id]?.let { request.copy(probes = it) } ?: request
+            },
+        )
+    }
+
     fun startMeasuring() {
         check(session.stage == Stage.HYPOTHESES) { "No hay hipotesis cargadas" }
         check(session.pendingRequests.isNotEmpty()) { "El playbook no trae mediciones" }
@@ -108,9 +118,11 @@ class DiagnosisEngine(
             hypotheses = updated,
             pendingRequests = session.pendingRequests.drop(1),
             safetyConfirmedForCurrent = false,
-            // El resultado guarda que se midio, para poder pedir las siguientes mediciones.
+            // El resultado guarda que se midio y sobre que componente: para pedir las
+            // siguientes mediciones y para marcarlo en el mapa de evidencia.
             results = session.results + result.copy(
                 note = result.note.ifBlank { "${current.kind} ${current.componentId}: ${current.instruction}" },
+                componentId = current.componentId,
             ),
             stage = nextStage,
             verdictComponentId = if (nextStage == Stage.VERDICT) leader?.componentId else null,

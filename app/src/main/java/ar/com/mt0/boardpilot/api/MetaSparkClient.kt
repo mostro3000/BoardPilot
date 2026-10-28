@@ -7,6 +7,7 @@ import android.util.Base64
 import ar.com.mt0.boardpilot.domain.BoardComponent
 import ar.com.mt0.boardpilot.domain.DamageFinding
 import ar.com.mt0.boardpilot.domain.Hypothesis
+import ar.com.mt0.boardpilot.domain.MeasurementRequest
 import ar.com.mt0.boardpilot.domain.MeasurementResult
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
@@ -190,6 +191,63 @@ class MetaSparkClient(
         chat(body)
     }
 
+    /**
+     * Donde apoyar la punta roja y la negra en cada medicion (capa 2 de la guia
+     * visual), sobre la foto limpia (coordenadas) y la anotada (ids). Se pide en
+     * segundo plano para todas las pendientes juntas. Devuelve el JSON crudo.
+     */
+    suspend fun probeGuides(
+        bitmap: Bitmap,
+        components: List<BoardComponent>,
+        requests: List<MeasurementRequest>,
+        language: AppLanguage,
+    ): String = withContext(Dispatchers.IO) {
+        val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
+        val measurementsJson = JSONArray().apply {
+            requests.forEach { r ->
+                put(JSONObject().apply {
+                    put("id", r.id)
+                    put("componentId", r.componentId)
+                    put("kind", r.kind.name)
+                    put("instruction", r.instruction)
+                })
+            }
+        }
+        val userText = "Candidate components:\n" + candidatesJson(components) + "\n" +
+            "Measurements:\n" + measurementsJson
+        val annotated = annotate(bitmap, components)
+        val body = JSONObject().apply {
+            put("model", "muse-spark-1.3")
+            put("max_tokens", 8000)
+            reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
+            put("temperature", 0.2)
+            put("messages", JSONArray()
+                .put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", PROBE_PROMPT.replace("LANGUAGE", languageName))
+                })
+                .put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", JSONArray()
+                        .put(JSONObject().apply {
+                            put("type", "text")
+                            put("text", userText)
+                        })
+                        .put(JSONObject().apply {
+                            put("type", "image_url")
+                            put("image_url", JSONObject().put(
+                                "url", "data:image/jpeg;base64," + encodeJpeg(bitmap)))
+                        })
+                        .put(JSONObject().apply {
+                            put("type", "image_url")
+                            put("image_url", JSONObject().put(
+                                "url", "data:image/jpeg;base64," + encodeJpeg(annotated)))
+                        }))
+                }))
+        }
+        chat(body)
+    }
+
     private fun candidatesJson(components: List<BoardComponent>): JSONArray = JSONArray().apply {
         components.forEach { c ->
             put(JSONObject().apply {
@@ -316,5 +374,17 @@ Rules:
 - Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
 - All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
+
+        // Mismo prompt que tools/smoke_spark.py --probes (mantener en sync).
+        private const val PROBE_PROMPT = """You are BoardPilot, an expert electronics repair copilot. You receive a clean photo of a circuit board, the same photo annotated with candidate component boxes, the candidate list (JSON, normalized 0..1 boxes, origin top-left, x to the right, y down) and the measurements the technician will take. For each measurement say exactly where to place the red and the black multimeter probes on THIS board.
+Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
+{"probes":[{"measurementId":"m1","red":{"componentId":"...","x":0.0,"y":0.0,"terminal":"..."},"black":{"componentId":"...","x":0.0,"y":0.0,"terminal":"..."},"visible":true,"note":""}]}
+Rules:
+- x and y are normalized coordinates on the clean photo of the exact point to touch: the metal lead or pin where it leaves the body, or its solder joint; never the plastic body or the component center.
+- componentId is the candidate "id" exactly as in the list of the part that probe touches: usually the measured component, or another candidate when the probe goes to a reference point such as the negative of the bulk capacitor (primary ground).
+- terminal names that point briefly (anode, cathode, +, -, pin 1, drain, ground...). If you cannot see the polarity or pin-1 mark in the photo, append "?" to the terminal name.
+- Respect polarity: DIODE red on anode and black on cathode; VOLTAGE_DC red on + and black on - (ground).
+- If the terminals to touch are not visible in this photo (leads hidden under the body or only reachable on the solder side), set visible to false, omit red and black, and say in note where to touch instead.
+- terminal and note in LANGUAGE. Never put ids in them: name components by their designator."""
     }
 }

@@ -57,6 +57,22 @@ fun safetyGateFor(kind: MeasurementKind): SafetyGate = when (kind) {
     -> SafetyGate.DE_ENERGIZED
 }
 
+/**
+ * Donde apoyar una punta: un punto normalizado de la foto sobre un componente
+ * (el medido u otro, como la masa del primario) y el terminal ("anodo", "+").
+ * Un "?" en el terminal indica que la polaridad no se ve en la foto.
+ */
+data class ProbePoint(val componentId: String, val x: Float, val y: Float, val terminal: String)
+
+/**
+ * Guia de puntas de una medicion (sugerida por Muse Spark o fija en el demo).
+ * Sin puntos cuando los terminales no se ven en la foto: queda la nota.
+ */
+data class ProbeGuide(val red: ProbePoint?, val black: ProbePoint?, val note: String = "") {
+    val points: List<ProbePoint> get() = listOfNotNull(red, black)
+    val uncertainPolarity: Boolean get() = points.any { '?' in it.terminal }
+}
+
 data class MeasurementRequest(
     val id: String,
     val componentId: String,
@@ -66,6 +82,7 @@ data class MeasurementRequest(
     val abnormalDescription: String,
     val gate: SafetyGate,
     val targetHypothesisId: String,
+    val probes: ProbeGuide? = null,
 )
 
 enum class MeasurementOutcome { NORMAL, ABNORMAL, UNCLEAR }
@@ -74,6 +91,8 @@ data class MeasurementResult(
     val requestId: String,
     val outcome: MeasurementOutcome,
     val note: String = "",
+    /** Componente medido (lo completa el motor); vacio en sesiones viejas. */
+    val componentId: String = "",
 )
 
 /** Motivos de rechazo estables; la UI los convierte a texto localizado. */

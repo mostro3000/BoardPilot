@@ -7,10 +7,13 @@ Valida que la respuesta parsee, referencie solo ids candidatos y traiga
 mediciones con tipos validos. Lee la clave solo de MODEL_API_KEY.
 
 Uso:
-    MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGEN CANDIDATOS.json "sintoma" [ES|EN] [--plan]
+    MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGEN CANDIDATOS.json "sintoma" [ES|EN] [--plan] [--probes]
 
 Con --plan, despues del diagnostico simula que todas sus mediciones dieron
 normal y pide las siguientes con el mismo prompt que MetaSparkClient.planMeasurements.
+Con --probes pide donde van las puntas de las mediciones del diagnostico (mismo
+prompt que MetaSparkClient.probeGuides), las valida como la app y las dibuja en
+/tmp/boardpilot_probes.jpg.
 
 CANDIDATOS.json: [{"id","designator","kind","x","y","w","h"}] normalizado 0..1.
 La foto anotada queda en /tmp/boardpilot_annotated.jpg.
@@ -25,7 +28,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 BASE = os.environ.get("META_API_BASE", "https://api.meta.ai/v1").rstrip("/")
 MODEL = os.environ.get("MUSE_SPARK_MODEL", "muse-spark-1.3")
@@ -84,6 +87,18 @@ def text_warnings(items: list, fields: tuple, candidate_ids: set) -> list:
             if field == "fix" and re.match(r"\s*(si se confirma|if confirmed)\b", low):
                 warnings.append(f"fix repite la condicion: {text[:80]!r}")
     return warnings
+
+# Mismo prompt que MetaSparkClient.PROBE_PROMPT (mantener en sync).
+PROBE = """You are BoardPilot, an expert electronics repair copilot. You receive a clean photo of a circuit board, the same photo annotated with candidate component boxes, the candidate list (JSON, normalized 0..1 boxes, origin top-left, x to the right, y down) and the measurements the technician will take. For each measurement say exactly where to place the red and the black multimeter probes on THIS board.
+Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
+{"probes":[{"measurementId":"m1","red":{"componentId":"...","x":0.0,"y":0.0,"terminal":"..."},"black":{"componentId":"...","x":0.0,"y":0.0,"terminal":"..."},"visible":true,"note":""}]}
+Rules:
+- x and y are normalized coordinates on the clean photo of the exact point to touch: the metal lead or pin where it leaves the body, or its solder joint; never the plastic body or the component center.
+- componentId is the candidate "id" exactly as in the list of the part that probe touches: usually the measured component, or another candidate when the probe goes to a reference point such as the negative of the bulk capacitor (primary ground).
+- terminal names that point briefly (anode, cathode, +, -, pin 1, drain, ground...). If you cannot see the polarity or pin-1 mark in the photo, append "?" to the terminal name.
+- Respect polarity: DIODE red on anode and black on cathode; VOLTAGE_DC red on + and black on - (ground).
+- If the terminals to touch are not visible in this photo (leads hidden under the body or only reachable on the solder side), set visible to false, omit red and black, and say in note where to touch instead.
+- terminal and note in LANGUAGE. Never put ids in them: name components by their designator."""
 
 
 def annotate(image_path: str, candidates: list[dict]) -> bytes:
@@ -155,7 +170,7 @@ def assign_damage(findings: list[dict], candidates: list[dict]) -> list[str]:
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) < 3:
-        print('Uso: smoke_spark.py IMAGEN CANDIDATOS.json "sintoma" [ES|EN] [--plan]')
+        print('Uso: smoke_spark.py IMAGEN CANDIDATOS.json "sintoma" [ES|EN] [--plan] [--probes]')
         return 2
     if not KEY:
         print("ERROR: falta MODEL_API_KEY en el entorno.")
@@ -262,7 +277,95 @@ def main() -> int:
     print("RESULTADO:", "OK" if ok else "revisar (arriba)")
     if "--plan" in sys.argv and hyps:
         ok = plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) and ok
+    if "--probes" in sys.argv and meas:
+        ok = probe_step(image_path, clean_url, data_url, candidates, language, meas) and ok
     return 0 if ok else 1
+
+
+def probe_step(image_path, clean_url, annotated_url, candidates, language, meas) -> bool:
+    """Donde van las puntas; validacion como SparkOutputParser.parseProbes."""
+    measurements = [{"id": m.get("id"), "componentId": m.get("componentId"), "kind": m.get("kind"),
+                     "instruction": m.get("instruction")} for m in meas]
+    user_text = (f"Candidate components:\n{json.dumps(candidates, ensure_ascii=False)}\n"
+                 f"Measurements:\n{json.dumps(measurements, ensure_ascii=False)}")
+    body = {
+        "model": MODEL,
+        "max_tokens": 8000,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": PROBE.replace("LANGUAGE", language)},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": clean_url}},
+                {"type": "image_url", "image_url": {"url": annotated_url}},
+            ]},
+        ],
+    }
+    print("puntas de las mediciones...")
+    content, usage = chat(body)
+    print("usage puntas:", json.dumps(usage))
+    probes = parse_obj(content).get("probes") or []
+    boxes = {c["id"]: c for c in candidates}
+    by_designator = {c["designator"].replace(" ", "").lower(): c["id"] for c in candidates}
+    by_meas = {m.get("id"): m for m in meas}
+    shown, hidden, dropped, drawn = 0, 0, 0, []
+    for p in probes:
+        m = by_meas.get(p.get("measurementId"))
+        if not m:
+            print("PUNTAS de una medicion desconocida:", p.get("measurementId"))
+            continue
+        if p.get("visible") is False:
+            hidden += 1
+            print(f"OCULTA {m.get('id')} {m.get('componentId')}: {str(p.get('note'))[:120]}")
+            continue
+        for probe in ("red", "black"):
+            q = p.get(probe) or {}
+            cid = str(q.get("componentId") or m.get("componentId"))
+            cid = cid if cid in boxes else by_designator.get(cid.replace(" ", "").lower(), cid)
+            box = boxes.get(cid)
+            try:
+                x, y = float(q["x"]), float(q["y"])
+            except (KeyError, TypeError, ValueError):
+                box = None
+            if not box:
+                dropped += 1
+                print(f"DESCARTADA {m.get('id')} {probe}: {q}")
+                continue
+            margin = max(0.02, 0.25 * max(box["w"], box["h"]))
+            if not (box["x"] - margin <= x <= box["x"] + box["w"] + margin and
+                    box["y"] - margin <= y <= box["y"] + box["h"] + margin):
+                dropped += 1
+                print(f"FUERA DE SU CAJA {m.get('id')} {probe} ({x:.3f},{y:.3f}) sobre {cid}")
+                continue
+            shown += 1
+            drawn.append((m.get("componentId"), probe, x, y, str(q.get("terminal") or "")))
+            print(f"PUNTA {m.get('id')} {probe} {cid} ({x:.3f},{y:.3f}) {q.get('terminal')}")
+    print(f"puntas validas={shown} descartadas={dropped} mediciones con patas ocultas={hidden}")
+    points = [q for p in probes for q in (p.get("red") or {}, p.get("black") or {})]
+    warns = text_warnings(points, ("terminal",), set(boxes)) + text_warnings(probes, ("note",), set(boxes))
+    for w in warns:
+        print("AVISO:", w)
+    im = Image.open(image_path).convert("RGB")
+    w, h = im.size
+    d = ImageDraw.Draw(im)
+    try:  # Fuente con acentos ("ánodo"); si no esta, la de PIL.
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    except OSError:
+        font = ImageFont.load_default()
+    for cid in {c for c, *_ in drawn}:
+        b = boxes.get(cid)
+        if b:
+            d.rectangle([b["x"] * w, b["y"] * h, (b["x"] + b["w"]) * w, (b["y"] + b["h"]) * h],
+                        outline=(255, 179, 0), width=2)
+    for _, probe, x, y, terminal in drawn:
+        color = (230, 30, 30) if probe == "red" else (15, 15, 15)
+        d.ellipse([x * w - 6, y * h - 6, x * w + 6, y * h + 6], fill=color, outline=(255, 255, 255), width=2)
+        d.text((x * w + 8, y * h - 7), terminal, fill=(255, 255, 255), font=font)
+    im.save("/tmp/boardpilot_probes.jpg", quality=90)
+    print("imagen: /tmp/boardpilot_probes.jpg")
+    ok = (shown + hidden) > 0
+    print("RESULTADO PUNTAS:", "OK" if ok else "revisar (arriba)")
+    return ok
 
 
 def plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) -> bool:

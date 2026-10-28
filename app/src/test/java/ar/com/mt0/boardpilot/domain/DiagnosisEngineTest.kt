@@ -20,6 +20,19 @@ class DiagnosisEngineTest {
     }
 
     @Test
+    fun `las puntas se suman a las mediciones pendientes y el resultado recuerda el componente`() {
+        val engine = engineAtMeasuring(AppLanguage.ES)
+        val guide = ProbeGuide(ProbePoint("q3", 0.6f, 0.3f, "drenaje"), null, "")
+        engine.attachProbes(mapOf("m_q3" to guide, "inexistente" to guide))
+        assertEquals(guide, engine.session.pendingRequests.single { it.id == "m_q3" }.probes)
+        assertEquals(Stage.MEASURING, engine.session.stage)
+
+        engine.confirmSafety()
+        engine.submitResult(MeasurementResult("m_f1", MeasurementOutcome.NORMAL))
+        assertEquals("f1", engine.session.results.single().componentId)
+    }
+
+    @Test
     fun `no se puede medir sin confirmar la compuerta de seguridad`() {
         val engine = engineAtMeasuring(AppLanguage.ES)
         val result = engine.submitResult(

@@ -176,6 +176,22 @@ interface AppStrings {
     fun stageName(stage: Stage): String
     fun kindName(kind: MeasurementKind): String
     fun rejectMessage(reason: RejectReason): String
+
+    // Guia visual de mediciones (lupa, multimetro, puntas, mapa de evidencia).
+    fun measurementOf(n: Int, total: Int): String
+    fun meterMode(kind: MeasurementKind): String
+    val redJack: String
+    val blackJack: String
+    val redTag: String
+    val blackTag: String
+    val probesAiNote: String
+    val probesDemoNote: String
+    val probesLoading: String
+    val probesLocate: String
+    val probesHidden: String
+    val diodeBothWays: String
+    val mapMeasureTag: String
+    val mapVerdictTag: String
 }
 
 fun appStrings(language: AppLanguage): AppStrings = when (language) {
@@ -358,6 +374,26 @@ object EsStrings : AppStrings {
         MeasurementKind.DIODE -> "diodo"
     }
 
+    override fun measurementOf(n: Int, total: Int) = "Medición $n de $total"
+    override fun meterMode(kind: MeasurementKind): String = when (kind) {
+        MeasurementKind.CONTINUITY -> "Selector en continuidad (pitido)"
+        MeasurementKind.RESISTANCE -> "Selector en resistencia (Ω)"
+        MeasurementKind.VOLTAGE_DC -> "Selector en tensión continua (V DC)"
+        MeasurementKind.DIODE -> "Selector en prueba de diodo"
+    }
+    override val redJack = "roja → VΩ"
+    override val blackJack = "negra → COM"
+    override val redTag = "R"
+    override val blackTag = "N"
+    override val probesAiNote = "Ubicación sugerida por IA: confirmala con la serigrafía."
+    override val probesDemoNote = "Ubicación de ejemplo del caso demo."
+    override val probesLoading = "Muse Spark está ubicando las puntas..."
+    override val probesLocate = "Ubicar las puntas con Muse Spark"
+    override val probesHidden = "Las patas no se ven en esta foto."
+    override val diodeBothWays = "Si no ves la marca de polaridad, probá en los dos sentidos: en uno marca la caída (≈0,5–0,7 V; un LED ≈1–2 V) y en el otro OL."
+    override val mapMeasureTag = "medir"
+    override val mapVerdictTag = "veredicto"
+
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No queda ninguna medición pendiente."
         RejectReason.WRONG_REQUEST -> "La respuesta no corresponde a la medición pedida."
@@ -539,6 +575,26 @@ object EnStrings : AppStrings {
         MeasurementKind.VOLTAGE_DC -> "DC voltage"
         MeasurementKind.DIODE -> "diode"
     }
+
+    override fun measurementOf(n: Int, total: Int) = "Measurement $n of $total"
+    override fun meterMode(kind: MeasurementKind): String = when (kind) {
+        MeasurementKind.CONTINUITY -> "Dial on continuity (beep)"
+        MeasurementKind.RESISTANCE -> "Dial on resistance (Ω)"
+        MeasurementKind.VOLTAGE_DC -> "Dial on DC voltage (V DC)"
+        MeasurementKind.DIODE -> "Dial on diode test"
+    }
+    override val redJack = "red → VΩ"
+    override val blackJack = "black → COM"
+    override val redTag = "R"
+    override val blackTag = "B"
+    override val probesAiNote = "AI-suggested location: confirm it with the silkscreen."
+    override val probesDemoNote = "Example location from the demo case."
+    override val probesLoading = "Muse Spark is locating the probe points..."
+    override val probesLocate = "Locate the probes with Muse Spark"
+    override val probesHidden = "The leads are not visible in this photo."
+    override val diodeBothWays = "If you can't see the polarity mark, try both ways: one shows the drop (≈0.5–0.7 V; an LED ≈1–2 V) and the other OL."
+    override val mapMeasureTag = "measure"
+    override val mapVerdictTag = "verdict"
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No measurement is pending."

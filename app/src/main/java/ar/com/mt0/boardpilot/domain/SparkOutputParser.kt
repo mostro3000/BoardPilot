@@ -1,5 +1,8 @@
 package ar.com.mt0.boardpilot.domain
 
+import kotlin.math.abs
+import kotlin.math.max
+
 /** Resultado util de Muse Spark ya validado contra los candidatos SAM. */
 data class SparkDiagnosis(
     val hypotheses: List<Hypothesis> = emptyList(),
@@ -173,6 +176,67 @@ object SparkOutputParser {
         "(?<![\\w-])" + Regex.escape(id) + "(?![\\w-])",
         if (ignoreCase) setOf(RegexOption.IGNORE_CASE) else emptySet(),
     )
+
+    /**
+     * Donde van las puntas de cada medicion de [requests], validado contra la
+     * foto: cada punta sobre un candidato real (id o designador; si no dice,
+     * el medido) y dentro de su caja con margen para las patas; las dos puntas
+     * separadas; sin puntos si el modelo dice que los terminales no se ven
+     * (queda su nota). Una punta invalida se descarta sola.
+     */
+    fun parseProbes(
+        text: String,
+        components: List<BoardComponent>,
+        requests: List<MeasurementRequest>,
+    ): Map<String, ProbeGuide> {
+        val root = parseRoot(text) ?: return emptyMap()
+        val byId = requests.associateBy { it.id }
+        val guides = LinkedHashMap<String, ProbeGuide>()
+        (root["probes"] as? List<*>).orEmpty().forEach { raw ->
+            val m = raw as? Map<*, *> ?: return@forEach
+            val request = byId[m.str("measurementId")] ?: return@forEach
+            if (request.id in guides) return@forEach
+            val note = humanize(m.str("note").orEmpty().trim(), emptyList(), components)
+            val visible = m["visible"] as? Boolean ?: true
+            var red = if (visible) probePoint(m["red"], request, components) else null
+            var black = if (visible) probePoint(m["black"], request, components) else null
+            if (red != null && black != null &&
+                abs(red.x - black.x) < MIN_PROBE_GAP && abs(red.y - black.y) < MIN_PROBE_GAP
+            ) {
+                red = null
+                black = null
+            }
+            if (red == null && black == null && note.isBlank()) return@forEach
+            guides[request.id] = ProbeGuide(red, black, note)
+        }
+        return guides
+    }
+
+    private fun probePoint(
+        raw: Any?,
+        request: MeasurementRequest,
+        components: List<BoardComponent>,
+    ): ProbePoint? {
+        val m = raw as? Map<*, *> ?: return null
+        val componentId = resolve(m.str("componentId"), components, null) ?: request.componentId
+        val box = components.firstOrNull { it.id == componentId }?.box ?: return null
+        val x = m.num("x")?.toFloat()?.takeIf { it in 0f..1f } ?: return null
+        val y = m.num("y")?.toFloat()?.takeIf { it in 0f..1f } ?: return null
+        val margin = max(PROBE_MARGIN_MIN, PROBE_MARGIN_FACTOR * max(box.w, box.h))
+        if (x < box.x - margin || x > box.x + box.w + margin ||
+            y < box.y - margin || y > box.y + box.h + margin
+        ) {
+            return null
+        }
+        val terminal = humanize(m.str("terminal").orEmpty().trim(), emptyList(), components)
+        return ProbePoint(componentId, x, y, terminal.take(MAX_TERMINAL))
+    }
+
+    /** Las patas asoman fuera de la caja de SAM: margen relativo al componente. */
+    private const val PROBE_MARGIN_FACTOR = 0.25f
+    private const val PROBE_MARGIN_MIN = 0.02f
+    private const val MIN_PROBE_GAP = 0.004f
+    private const val MAX_TERMINAL = 40
 
     /**
      * Tipo de medicion tal como lo escribe el modelo, con sinonimos en ES/EN.
