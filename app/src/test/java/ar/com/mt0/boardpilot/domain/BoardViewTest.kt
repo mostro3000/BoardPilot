@@ -27,14 +27,15 @@ class BoardViewTest {
         val target = NormBox(0.379f, 0.61f, 0.174f, 0.031f)
         val points = listOf(0.385f to 0.626f, 0.547f to 0.626f)
         val photoAspect = 591f / 1280f
-        val region = BoardView.lensRegion(target, points, photoAspect, 1.6f)
+        val region = BoardView.lensRegion(target, points, photoAspect)
         assertTrue(region.x <= target.x && region.x + region.w >= target.x + target.w)
         assertTrue(region.y <= target.y && region.y + region.h >= target.y + target.h)
         points.forEach { (x, y) ->
             assertTrue(x in region.x..(region.x + region.w) && y in region.y..(region.y + region.h))
         }
-        // Proporcion en px de la foto: ancho/alto de la lupa.
-        assertEquals(1.6f, region.w * photoAspect / region.h, 0.01f)
+        // Una resistencia apaisada: la lupa toma su proporcion (dentro del rango).
+        assertEquals(1.387f, BoardView.lensAspect(region, photoAspect), 0.01f)
+        assertEquals(1.387f, region.w * photoAspect / region.h, 0.01f)
         assertTrue(region.x >= 0f && region.y >= 0f)
         assertTrue(region.x + region.w <= 1.0001f && region.y + region.h <= 1.0001f)
     }
@@ -42,13 +43,26 @@ class BoardViewTest {
     @Test
     fun `la lupa no se sale de la foto aunque la punta este en el borde`() {
         val corner = BoardView.lensRegion(
-            NormBox(0.0f, 0.0f, 0.05f, 0.05f), listOf(0.0f to 0.0f), 1.5f, 1.6f,
+            NormBox(0.0f, 0.0f, 0.05f, 0.05f), listOf(0.0f to 0.0f), 1.5f,
         )
         assertEquals(0f, corner.x, 0.0001f)
         assertEquals(0f, corner.y, 0.0001f)
         // Un componente casi tan grande como la foto: la lupa es la foto entera en ese eje.
-        val huge = BoardView.lensRegion(NormBox(0.05f, 0.05f, 0.9f, 0.9f), emptyList(), 1.5f, 1.6f)
+        val huge = BoardView.lensRegion(NormBox(0.05f, 0.05f, 0.9f, 0.9f), emptyList(), 1.5f)
         assertTrue(huge.h <= 1f && huge.w <= 1f)
+    }
+
+    @Test
+    fun `con un componente grande y alto la lupa no muestra toda la placa`() {
+        // Visto en el S25: DMG 1 (zona alta a la izquierda de una fuente de PC) llenaba
+        // la lupa con la placa entera. Ahora el aire tiene tope y la lupa es cuadrada.
+        val photoAspect = 1600f / 1268f
+        val target = NormBox(0.0f, 0.12f, 0.18f, 0.54f)
+        val region = BoardView.lensRegion(target, emptyList(), photoAspect)
+        assertTrue("ancho ${region.w}", region.w < 0.65f)
+        assertTrue("alto ${region.h}", region.h < 0.8f)
+        assertTrue(region.y <= target.y && region.y + region.h >= target.y + target.h)
+        assertEquals(1.0f, BoardView.lensAspect(region, photoAspect), 0.01f)
     }
 
     @Test

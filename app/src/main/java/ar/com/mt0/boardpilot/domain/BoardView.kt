@@ -27,16 +27,22 @@ object BoardView {
         return FitRect((containerW - w) / 2f, (containerH - h) / 2f, w, h)
     }
 
+    /** Proporciones (ancho/alto) de la lupa: cuadrada para piezas altas, apaisada para anchas. */
+    const val LENS_MIN_ASPECT = 1.0f
+    const val LENS_MAX_ASPECT = 1.8f
+
     /**
      * Zona normalizada de la foto que muestra la lupa: el componente medido y
-     * los puntos de las puntas, con aire alrededor y la proporcion de la lupa
-     * ([lensAspect], ancho/alto) medida en px de una foto de [photoAspect].
+     * los puntos de las puntas, con aire alrededor y una proporcion entre
+     * [LENS_MIN_ASPECT] y [LENS_MAX_ASPECT] medida en px de una foto de
+     * [photoAspect]. El aire es proporcional a la pieza pero con tope: antes
+     * crecia sin limite y con un componente grande (y la lupa siempre apaisada)
+     * la lupa mostraba casi toda la placa.
      */
     fun lensRegion(
         target: NormBox,
         points: List<Pair<Float, Float>>,
         photoAspect: Float,
-        lensAspect: Float,
     ): NormBox {
         // En "altos de foto": x por la proporcion, asi ambos ejes miden en px.
         val a = photoAspect.coerceAtLeast(0.01f)
@@ -50,11 +56,12 @@ object BoardView {
             y0 = min(y0, py)
             y1 = max(y1, py)
         }
-        val pad = max(max(x1 - x0, y1 - y0) * 0.6f, 0.04f)
-        // Proporcion de la lupa, creciendo el lado corto desde el centro.
+        val pad = (max(x1 - x0, y1 - y0) * 0.6f).coerceIn(LENS_MIN_PAD, LENS_MAX_PAD)
+        // Proporcion dentro del rango, creciendo el lado corto desde el centro.
         var w = x1 - x0 + 2 * pad
         var h = y1 - y0 + 2 * pad
-        if (w / h < lensAspect) w = h * lensAspect else h = w / lensAspect
+        if (w / h < LENS_MIN_ASPECT) w = h * LENS_MIN_ASPECT
+        if (w / h > LENS_MAX_ASPECT) h = w / LENS_MAX_ASPECT
         // Dentro de la foto; si no entra entera, la foto completa en ese eje.
         w = min(w, a)
         h = min(h, 1f)
@@ -67,6 +74,15 @@ object BoardView {
             h.coerceIn(0f, 1f),
         )
     }
+
+    /** Proporcion (ancho/alto) con que se dibuja la lupa para esa zona de la foto. */
+    fun lensAspect(region: NormBox, photoAspect: Float): Float =
+        (region.w * photoAspect / region.h.coerceAtLeast(0.0001f))
+            .coerceIn(LENS_MIN_ASPECT, LENS_MAX_ASPECT)
+
+    // Aire alrededor de la pieza en la lupa, en altos de foto.
+    private const val LENS_MIN_PAD = 0.04f
+    private const val LENS_MAX_PAD = 0.10f
 
     /** Cajas del mapa sin "ver todas": en placas densas SAM devuelve cientos (visto: 116). */
     const val MAP_LIMIT = 40

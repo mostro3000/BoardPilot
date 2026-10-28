@@ -2272,8 +2272,7 @@ private fun EvidenceChip(outcome: MeasurementOutcome, modifier: Modifier) {
     }
 }
 
-/** Proporcion de la lupa (ancho/alto) y del mapa del demo, que no tiene foto. */
-private const val LENS_ASPECT = 1.6f
+/** Proporcion (ancho/alto) del mapa del demo, que no tiene foto. */
 private const val DEMO_MAP_ASPECT = 1.5f
 
 /**
@@ -2295,15 +2294,16 @@ private fun ProbeLens(
     val points = guide?.points.orEmpty()
     val photoAspect = bitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: DEMO_MAP_ASPECT
     val region = remember(target, guide, photoAspect) {
-        BoardView.lensRegion(target.box, points.map { it.x to it.y }, photoAspect, LENS_ASPECT)
+        BoardView.lensRegion(target.box, points.map { it.x to it.y }, photoAspect)
     }
     // La punta negra puede ir en otro componente (p. ej. la masa del primario).
     val others = points.mapNotNull { p ->
         components.firstOrNull { it.id == p.componentId && it.id != target.id }
     }.distinct()
+    // Cuadrada para piezas altas, apaisada para anchas.
     Canvas(
         Modifier.fillMaxWidth()
-            .aspectRatio(LENS_ASPECT)
+            .aspectRatio(BoardView.lensAspect(region, photoAspect))
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF380B14)),
     ) {
