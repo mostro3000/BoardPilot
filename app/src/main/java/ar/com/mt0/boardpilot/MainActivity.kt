@@ -41,21 +41,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
@@ -63,6 +78,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -79,7 +95,9 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -94,7 +112,9 @@ import ar.com.mt0.boardpilot.domain.CameraAction
 import ar.com.mt0.boardpilot.domain.CameraAfterRequest
 import ar.com.mt0.boardpilot.domain.ComponentKind
 import ar.com.mt0.boardpilot.domain.PermissionGrant
+import ar.com.mt0.boardpilot.domain.ProjectStatus
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
+import ar.com.mt0.boardpilot.domain.RepairProject
 import ar.com.mt0.boardpilot.domain.cameraAction
 import ar.com.mt0.boardpilot.domain.cameraAfterRequest
 import ar.com.mt0.boardpilot.domain.permissionGrant
@@ -104,26 +124,36 @@ import ar.com.mt0.boardpilot.domain.MeasurementOutcome
 import ar.com.mt0.boardpilot.domain.MeasurementResult
 import ar.com.mt0.boardpilot.domain.SamBox
 import ar.com.mt0.boardpilot.domain.SamOutputParser
-import ar.com.mt0.boardpilot.domain.SessionCodec
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
 import ar.com.mt0.boardpilot.domain.SparkOutputParser
 import ar.com.mt0.boardpilot.domain.Stage
 import ar.com.mt0.boardpilot.domain.ThemeMode
 import ar.com.mt0.boardpilot.domain.TitleTapDetector
+import ar.com.mt0.boardpilot.domain.isUntouched
+import ar.com.mt0.boardpilot.domain.paused
+import ar.com.mt0.boardpilot.domain.projectStatus
+import ar.com.mt0.boardpilot.domain.renamed
 import ar.com.mt0.boardpilot.domain.resolveDarkTheme
+import ar.com.mt0.boardpilot.domain.resumed
+import ar.com.mt0.boardpilot.domain.sortedProjects
+import ar.com.mt0.boardpilot.domain.withAutoTitle
+import ar.com.mt0.boardpilot.domain.withProgress
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import ar.com.mt0.boardpilot.i18n.AppStrings
+import ar.com.mt0.boardpilot.i18n.EnStrings
+import ar.com.mt0.boardpilot.i18n.EsStrings
 import ar.com.mt0.boardpilot.i18n.LanguageMode
 import ar.com.mt0.boardpilot.i18n.appStrings
 import ar.com.mt0.boardpilot.i18n.isSetupComplete
+import ar.com.mt0.boardpilot.i18n.projectSubtitle
+import ar.com.mt0.boardpilot.i18n.relativeTime
 import ar.com.mt0.boardpilot.i18n.resolveLanguage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
+import java.time.ZoneId
 
 private const val PREFS = "boardpilot_prefs"
 private const val PREF_API_KEY = "model_api_key"
@@ -131,12 +161,8 @@ private const val PREF_LANGUAGE = "language_mode"
 private const val PREF_SETUP_DONE = "setup_completed"
 private const val PREF_THEME = "theme_mode"
 private const val PREF_EFFORT = "reasoning_effort"
-private const val PREF_SESSION = "diagnosis_session"
-private const val PREF_STARTED = "session_started"
-private const val PREF_LIVE_MAPPING = "live_mapping"
-private const val BOARD_PHOTO_FILE = "board_photo.jpg"
-private const val REFERENCE_PHOTO_FILE = "reference_photo.jpg"
-private const val PREF_REFERENCE_FOR = "reference_component"
+/** Lado mayor de la miniatura de cada proyecto en la lista. */
+private const val THUMB_PX = 192
 private const val APP_AUTHOR = "Mauricio Tagliaferro"
 private const val APP_LICENSE = "GNU GPL-3.0-or-later"
 
@@ -155,6 +181,10 @@ private val BoardPilotLightColors = lightColorScheme(
     onSurface = Color(0xFF211114),
     onSurfaceVariant = Color(0xFF524144),
     outline = Color(0xFF857375),
+    // Aviso de Deshacer: oscuro calido con la accion en ambar (no el violeta por defecto).
+    inverseSurface = Color(0xFF342124),
+    inverseOnSurface = Color(0xFFF7F3F2),
+    inversePrimary = Color(0xFFFFBA7A),
 )
 
 private val BoardPilotDarkColors = darkColorScheme(
@@ -169,6 +199,10 @@ private val BoardPilotDarkColors = darkColorScheme(
     surfaceVariant = Color(0xFF342124),
     onSurfaceVariant = Color(0xFFD8C2BE),
     outline = Color(0xFFA08C89),
+    // Aviso de Deshacer: claro calido con la accion en bordo.
+    inverseSurface = Color(0xFFF1E4E1),
+    inverseOnSurface = Color(0xFF211114),
+    inversePrimary = Color(0xFF7A1220),
 )
 
 class MainActivity : ComponentActivity() {
@@ -215,9 +249,19 @@ fun BoardPilotRoot() {
         colorScheme = if (darkTheme) BoardPilotDarkColors else BoardPilotLightColors,
     ) {
         Surface(Modifier.fillMaxSize()) {
-            BoardPilotApp(themeMode) { selected ->
-                themeMode = selected
-                prefs.edit().putString(PREF_THEME, selected.name).apply()
+            // El aviso de Deshacer flota abajo, sobre cualquier pantalla.
+            val snackbar = remember { SnackbarHostState() }
+            Box(Modifier.fillMaxSize()) {
+                BoardPilotApp(themeMode, snackbar) { selected ->
+                    themeMode = selected
+                    prefs.edit().putString(PREF_THEME, selected.name).apply()
+                }
+                SnackbarHost(
+                    snackbar,
+                    Modifier.align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .padding(16.dp),
+                )
             }
         }
     }
@@ -226,6 +270,7 @@ fun BoardPilotRoot() {
 @Composable
 fun BoardPilotApp(
     themeMode: ThemeMode,
+    snackbar: SnackbarHostState,
     onThemeModeSelected: (ThemeMode) -> Unit,
 ) {
     val context = LocalContext.current
@@ -267,98 +312,215 @@ fun BoardPilotApp(
         }
     }
 
-    var runId by remember { mutableStateOf(0) }
-    var restoredSession by remember {
+    // Reparaciones guardadas, como los chats: la app abre en la lista y cada
+    // proyecto conserva su sesion, su foto y su referencia (archivos por id).
+    val store = remember { ProjectStore.get(context) }
+    val defaultTitles = remember { setOf(EsStrings.newProjectTitle, EnStrings.newProjectTitle) }
+    var projects by remember {
         mutableStateOf(
-            prefs.getString(PREF_SESSION, null)?.let {
-                runCatching { SessionCodec.decode(it) }.getOrNull()
-            },
+            store.load(
+                prefs, DemoCaseSmps.newSession(language), strings.newProjectTitle,
+                System.currentTimeMillis(),
+            ),
         )
     }
-    val engine = remember(runId, language) {
-        DiagnosisEngine(
-            if (runId == 0) restoredSession ?: DemoCaseSmps.newSession(language)
-            else DemoCaseSmps.newSession(language),
-        )
-    }
-    var session by remember(runId, language) { mutableStateOf(engine.session) }
-    var started by remember { mutableStateOf(prefs.getBoolean(PREF_STARTED, false)) }
-    var liveMapping by remember {
-        mutableStateOf(prefs.getBoolean(PREF_LIVE_MAPPING, false))
-    }
-    fun refresh() {
-        session = engine.session
-        prefs.edit()
-            .putString(PREF_SESSION, SessionCodec.encode(engine.session))
-            .putBoolean(PREF_STARTED, started)
-            .putBoolean(PREF_LIVE_MAPPING, liveMapping)
-            .apply()
+    var openProjectId by rememberSaveable { mutableStateOf<String?>(null) }
+    val currentProject = projects.firstOrNull { it.id == openProjectId }
+    // Un motor por proyecto: lo que devuelva SAM/Spark/Image en vuelo cae en
+    // su propio proyecto aunque el tecnico ya este en otro o en la lista.
+    val engines = remember { mutableMapOf<String, DiagnosisEngine>() }
+    fun engineFor(project: RepairProject): DiagnosisEngine =
+        engines.getOrPut(project.id) { DiagnosisEngine(project.session) }
+
+    fun updateProject(id: String, change: (RepairProject) -> RepairProject) {
+        if (projects.none { it.id == id }) return
+        projects = projects.map { if (it.id == id) change(it) else it }
+        store.save(projects)
     }
 
-    fun resetSession() {
-        restoredSession = null
-        started = false
-        liveMapping = false
-        prefs.edit()
-            .remove(PREF_SESSION)
-            .putBoolean(PREF_STARTED, false)
-            .putBoolean(PREF_LIVE_MAPPING, false)
-            .apply()
-        runId++
+    /** Vuelca el motor del proyecto a la lista guardada (y a la pantalla). */
+    fun refresh(id: String, liveMapping: Boolean? = null) {
+        val engine = engines[id] ?: return
+        updateProject(id) {
+            it.withProgress(
+                engine.session, it.started, liveMapping ?: it.liveMapping,
+                System.currentTimeMillis(),
+            )
+        }
     }
 
     var boardBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var mappingBusy by remember { mutableStateOf(false) }
-    var sparkBusy by remember { mutableStateOf(false) }
+    var referenceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val thumbnails = remember { mutableStateMapOf<String, Bitmap>() }
+    // Pedidos en vuelo por proyecto: el boton ocupado es solo el de ese proyecto.
+    val mappingBusy = remember { mutableStateListOf<String>() }
+    val sparkBusy = remember { mutableStateListOf<String>() }
+    val referenceBusy = remember { mutableStateListOf<String>() }
     var symptomDraft by rememberSaveable { mutableStateOf("") }
     var mappingError by remember { mutableStateOf<String?>(null) }
-    var referenceBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var referenceBusy by remember { mutableStateOf(false) }
     var referenceError by remember { mutableStateOf<String?>(null) }
-    var referenceForId by remember {
-        mutableStateOf(prefs.getString(PREF_REFERENCE_FOR, null))
-    }
+    // Aviso de la tarjeta de foto (permiso de camara denegado, etc.).
+    var photoNotice by remember { mutableStateOf<PhotoNotice?>(null) }
     val photoScope = rememberCoroutineScope()
-    LaunchedEffect(Unit) {
+
+    LaunchedEffect(openProjectId) {
+        val id = openProjectId ?: return@LaunchedEffect
         if (boardBitmap == null) {
-            boardBitmap = withContext(Dispatchers.IO) { loadSavedBoardPhoto(context) }
+            boardBitmap = withContext(Dispatchers.IO) { store.loadBoardPhoto(id) }
         }
         if (referenceBitmap == null) {
-            referenceBitmap = withContext(Dispatchers.IO) {
-                loadSavedReferencePhoto(context)
+            referenceBitmap = withContext(Dispatchers.IO) { store.loadReference(id) }
+        }
+    }
+    LaunchedEffect(openProjectId == null, projects.size) {
+        if (openProjectId != null) return@LaunchedEffect
+        projects.filter { it.id !in thumbnails }.forEach { project ->
+            withContext(Dispatchers.IO) { store.loadThumbnail(project.id, THUMB_PX) }
+                ?.let { thumbnails[project.id] = it }
+        }
+    }
+
+    fun apiKey(): String? = prefs.getString(PREF_API_KEY, null)?.takeIf { it.isNotBlank() }
+
+    fun openProject(id: String) {
+        boardBitmap = null
+        referenceBitmap = null
+        symptomDraft = ""
+        mappingError = null
+        referenceError = null
+        photoNotice = null
+        openProjectId = id
+    }
+
+    fun createProject() {
+        val now = System.currentTimeMillis()
+        val project = RepairProject(
+            id = store.newId(),
+            title = strings.newProjectTitle,
+            createdAtMillis = now,
+            updatedAtMillis = now,
+            session = DemoCaseSmps.newSession(language),
+        )
+        projects = projects + project
+        store.save(projects)
+        openProject(project.id)
+    }
+
+    /** Vuelve a la lista; un proyecto nuevo sin tocar no se guarda (como un chat vacio). */
+    fun closeProject() {
+        val project = currentProject
+        openProjectId = null
+        if (project != null && project.isUntouched(defaultTitles) &&
+            boardBitmap == null && !store.hasBoardPhoto(project.id)
+        ) {
+            projects = projects.filterNot { it.id == project.id }
+            engines.remove(project.id)
+            store.save(projects)
+            store.deleteFiles(project.id)
+        }
+    }
+
+    /**
+     * Borrado deslizando en la lista, como otras apps: el proyecto sale al
+     * instante y un aviso ofrece Deshacer; su foto y su referencia se borran
+     * recien cuando el aviso se va (o si la pantalla se destruye antes).
+     */
+    fun deleteProject(id: String) {
+        val removed = projects.firstOrNull { it.id == id } ?: return
+        projects = projects.filterNot { it.id == id }
+        engines.remove(id)
+        store.save(projects)
+        // Un borrado nuevo cierra el aviso anterior, que se confirma.
+        snackbar.currentSnackbarData?.dismiss()
+        photoScope.launch {
+            var restored = false
+            try {
+                val result = snackbar.showSnackbar(
+                    strings.projectDeleted(removed.title), strings.undo,
+                    duration = SnackbarDuration.Long,
+                )
+                if (result == SnackbarResult.ActionPerformed && projects.none { it.id == id }) {
+                    projects = projects + removed
+                    store.save(projects)
+                    restored = true
+                }
+            } finally {
+                if (!restored) {
+                    thumbnails.remove(id)
+                    store.deleteFiles(id)
+                }
             }
         }
     }
+
+    fun startDiagnosis(project: RepairProject) {
+        val engine = engineFor(project)
+        engine.updateSymptom(symptomDraft)
+        updateProject(project.id) {
+            it.withProgress(engine.session, true, it.liveMapping, System.currentTimeMillis())
+                .withAutoTitle(defaultTitles)
+        }
+    }
+
+    /** Reinicia el diagnostico del proyecto; conserva nombre y foto. */
+    fun restartProject(id: String) {
+        val fresh = DemoCaseSmps.newSession(language)
+        engines[id] = DiagnosisEngine(fresh)
+        updateProject(id) {
+            it.copy(
+                session = fresh, started = false, liveMapping = false,
+                referenceComponentId = null, waiting = false, waitingNote = null,
+                updatedAtMillis = System.currentTimeMillis(),
+            )
+        }
+        store.deleteReference(id)
+        referenceBitmap = null
+        mappingError = null
+        referenceError = null
+    }
+
+    fun setBoardPhoto(id: String, bitmap: Bitmap) {
+        store.saveBoardPhoto(id, bitmap)
+        thumbnails[id] = thumbnailOf(bitmap)
+        if (openProjectId == id) {
+            boardBitmap = bitmap
+            mappingError = null
+        }
+        updateProject(id) {
+            it.copy(liveMapping = false, updatedAtMillis = System.currentTimeMillis())
+        }
+    }
+
+    fun removeBoardPhoto(id: String) {
+        store.deleteBoardPhoto(id)
+        thumbnails.remove(id)
+        boardBitmap = null
+        updateProject(id) {
+            it.copy(liveMapping = false, updatedAtMillis = System.currentTimeMillis())
+        }
+    }
+
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri: Uri? ->
-        if (uri != null) {
+        val id = openProjectId
+        if (uri != null && id != null) {
             photoScope.launch {
-                boardBitmap = withContext(Dispatchers.IO) {
-                    loadBitmapDownscaled(context, uri)?.also { saveBoardPhoto(context, it) }
-                }
-                liveMapping = false
-                mappingError = null
+                withContext(Dispatchers.IO) { loadBitmapDownscaled(context, uri) }
+                    ?.let { setBoardPhoto(id, it) }
             }
         }
     }
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicturePreview(),
     ) { bmp: Bitmap? ->
-        if (bmp != null) {
-            boardBitmap = bmp
-            liveMapping = false
-            mappingError = null
-            photoScope.launch {
-                withContext(Dispatchers.IO) { saveBoardPhoto(context, bmp) }
-            }
-        }
+        val id = openProjectId
+        if (bmp != null && id != null) setBoardPhoto(id, bmp)
     }
 
     // La camara NUNCA se invoca sin permiso otorgado: sin el, la app se
     // colgaba en el S25. Sin permiso se pide primero; si el usuario lo
     // deniega, se avisa en la tarjeta de foto y queda Galeria como salida.
-    var photoNotice by remember { mutableStateOf<PhotoNotice?>(null) }
     var openCameraAfterGrant by remember { mutableStateOf(false) }
     var permissionFromAbout by remember { mutableStateOf(false) }
     var lastRequestedPermission by remember {
@@ -434,46 +596,48 @@ fun BoardPilotApp(
         openAppSettings(context)
     }
 
-    fun startMapping() {
+    fun startMapping(project: RepairProject) {
+        val id = project.id
+        val engine = engineFor(project)
         mappingError = null
         val bmp = boardBitmap
-        val key = prefs.getString(PREF_API_KEY, null)?.takeIf { it.isNotBlank() }
+        val key = apiKey()
         if (bmp == null || key == null) {
-            liveMapping = false
             engine.loadMapping(DemoCaseSmps.components(language))
-            refresh()
+            refresh(id, liveMapping = false)
             return
         }
-        mappingBusy = true
+        mappingBusy += id
         photoScope.launch {
             try {
                 val components = segmentBoardComponents(MetaSamClient(key), bmp)
                 if (components.isEmpty()) {
-                    mappingError = strings.samNoMatches
+                    if (openProjectId == id) mappingError = strings.samNoMatches
                 } else {
                     engine.loadMapping(components)
-                    liveMapping = true
-                    refresh()
+                    refresh(id, liveMapping = true)
                 }
             } catch (e: Exception) {
-                mappingError = strings.samFailed
+                if (openProjectId == id) mappingError = strings.samFailed
             } finally {
-                mappingBusy = false
+                mappingBusy -= id
             }
         }
     }
 
     /** Hipotesis y mediciones en vivo con Muse Spark sobre el mapeo SAM. */
-    fun startSpark() {
+    fun startSpark(project: RepairProject) {
+        val id = project.id
+        val engine = engineFor(project)
         mappingError = null
         val bmp = boardBitmap
-        val key = prefs.getString(PREF_API_KEY, null)?.takeIf { it.isNotBlank() }
-        if (bmp == null || key == null || session.components.isEmpty()) {
+        val key = apiKey()
+        if (bmp == null || key == null || engine.session.components.isEmpty()) {
             mappingError = strings.sparkFailed
             return
         }
-        val symptomAtStart = session.symptom
-        sparkBusy = true
+        val symptomAtStart = engine.session.symptom
+        sparkBusy += id
         photoScope.launch {
             try {
                 val client = MetaSparkClient(key, reasoningEffort = reasoningEffort)
@@ -483,20 +647,22 @@ fun BoardPilotApp(
                     .getOrDefault(emptyList())
                 if (findings.isNotEmpty()) {
                     val (assignDamages, extras) =
-                        SparkDamageParser.assign(findings, session.components)
+                        SparkDamageParser.assign(findings, engine.session.components)
                     if (extras.isNotEmpty()) engine.addComponents(extras)
                     if (assignDamages.isNotEmpty()) {
                         engine.applyVisibleDamage(assignDamages)
                     }
-                    refresh()
+                    refresh(id)
                 }
                 // 2) Diagnostico con los candidatos ya aumentados/marcados.
-                val componentsNow = session.components
+                val componentsNow = engine.session.components
                 val content = client.diagnose(
                     bmp, componentsNow, symptomAtStart, language, findings)
                 val diagnosis = SparkOutputParser.parse(content, componentsNow)
                 if (diagnosis.hypotheses.isEmpty()) {
-                    mappingError = diagnosis.needMoreEvidence ?: strings.sparkNoData
+                    if (openProjectId == id) {
+                        mappingError = diagnosis.needMoreEvidence ?: strings.sparkNoData
+                    }
                 } else {
                     // Dano visible: candidatos sinteticos (DMG) y marcas
                     // sobre los ya mapeados, antes de cargar las hipotesis.
@@ -507,39 +673,45 @@ fun BoardPilotApp(
                         engine.applyVisibleDamage(diagnosis.damages)
                     }
                     engine.loadHypotheses(diagnosis.hypotheses, diagnosis.requests)
-                    refresh()
+                    refresh(id)
                 }
             } catch (e: Exception) {
-                mappingError = strings.sparkFailed
+                if (openProjectId == id) mappingError = strings.sparkFailed
             } finally {
-                sparkBusy = false
+                sparkBusy -= id
             }
         }
     }
 
     /** Referencia visual de la reparacion con Muse Image (solo orientativa). */
-    fun startReference() {
+    fun startReference(project: RepairProject) {
+        val id = project.id
         referenceError = null
         val bmp = boardBitmap
-        val key = prefs.getString(PREF_API_KEY, null)?.takeIf { it.isNotBlank() }
+        val key = apiKey()
+        val session = engineFor(project).session
         val component = session.components
             .firstOrNull { it.id == session.verdictComponentId }
         if (bmp == null || key == null || component == null) {
             referenceError = strings.referenceFailed
             return
         }
-        referenceBusy = true
+        referenceBusy += id
         photoScope.launch {
             try {
                 val generated = MetaImageClient(key).repairReference(bmp, component)
-                referenceBitmap = generated
-                referenceForId = component.id
-                prefs.edit().putString(PREF_REFERENCE_FOR, component.id).apply()
-                withContext(Dispatchers.IO) { saveReferencePhoto(context, generated) }
+                store.saveReference(id, generated)
+                updateProject(id) {
+                    it.copy(
+                        referenceComponentId = component.id,
+                        updatedAtMillis = System.currentTimeMillis(),
+                    )
+                }
+                if (openProjectId == id) referenceBitmap = generated
             } catch (e: Exception) {
-                referenceError = strings.referenceFailed
+                if (openProjectId == id) referenceError = strings.referenceFailed
             } finally {
-                referenceBusy = false
+                referenceBusy -= id
             }
         }
     }
@@ -548,7 +720,24 @@ fun BoardPilotApp(
         mode = selected
         prefs.edit().putString(PREF_LANGUAGE, selected.name).apply()
         if (hasApiKey) completeSetup()
-        resetSession()
+        // Los proyectos iniciados conservan sus textos (cada placa queda en
+        // el idioma en que se diagnostico); los que no arrancaron se rehacen.
+        val newLanguage = resolveLanguage(selected, systemLanguage)
+        val newTitle = appStrings(newLanguage).newProjectTitle
+        if (projects.any { !it.started }) {
+            projects = projects.map { project ->
+                if (project.started) {
+                    project
+                } else {
+                    engines.remove(project.id)
+                    project.copy(
+                        session = DemoCaseSmps.newSession(newLanguage),
+                        title = if (project.title in defaultTitles) newTitle else project.title,
+                    )
+                }
+            }
+            store.save(projects)
+        }
     }
 
     fun onApiKeyChanged(nowHasKey: Boolean) {
@@ -585,8 +774,11 @@ fun BoardPilotApp(
         showSettings = false
         showEasterEgg = false
     }
-    BackHandler(enabled = showAbout || showSettings || showEasterEgg) {
-        closePanels()
+    // Atras cierra primero los paneles; dentro de un proyecto vuelve a la
+    // lista (no sale de la app). Desde la lista, sale como siempre.
+    val panelsOpen = showAbout || showSettings || showEasterEgg
+    BackHandler(enabled = panelsOpen || openProjectId != null) {
+        if (panelsOpen) closePanels() else closeProject()
     }
 
     if (showEasterEgg) {
@@ -657,7 +849,7 @@ fun BoardPilotApp(
                 prefs.edit().putString(PREF_EFFORT, selected.name).apply()
             }
             ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
-        } else {
+        } else if (currentProject == null) {
             Text(strings.appTagline, fontWeight = FontWeight.Medium)
             Text(strings.safetyIntro)
             if (!setupCompleted) {
@@ -670,7 +862,27 @@ fun BoardPilotApp(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(strings.continueWithoutKey) }
             }
-            if (!started) {
+            ProjectList(
+                strings = strings,
+                projects = sortedProjects(projects),
+                thumbnails = thumbnails,
+                onOpen = ::openProject,
+                onCreate = ::createProject,
+                onDelete = ::deleteProject,
+            )
+        } else {
+            val project = currentProject
+            val session = project.session
+            ProjectHeader(strings, project, onBack = ::closeProject) { name ->
+                updateProject(project.id) { it.renamed(name, System.currentTimeMillis()) }
+            }
+            if (project.waiting) {
+                WaitingCard(strings, project) {
+                    updateProject(project.id) { it.resumed(System.currentTimeMillis()) }
+                }
+            }
+            Text(strings.safetyIntro)
+            if (!project.started) {
                 PhotoCard(
                     strings = strings,
                     bitmap = boardBitmap,
@@ -678,13 +890,7 @@ fun BoardPilotApp(
                     onGallery = { photoNotice = null; galleryLauncher.launch("image/*") },
                     onCamera = ::openCamera,
                     onOpenSettings = ::openSettings,
-                    onRemove = {
-                        boardBitmap = null
-                        liveMapping = false
-                        photoScope.launch {
-                            withContext(Dispatchers.IO) { deleteSavedBoardPhoto(context) }
-                        }
-                    },
+                    onRemove = { removeBoardPhoto(project.id) },
                 )
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),
@@ -701,11 +907,7 @@ fun BoardPilotApp(
                             Text(DemoCaseSmps.symptom(language))
                         }
                         Button(
-                            onClick = {
-                                engine.updateSymptom(symptomDraft)
-                                started = true
-                                refresh()
-                            },
+                            onClick = { startDiagnosis(project) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
@@ -719,24 +921,34 @@ fun BoardPilotApp(
                     }
                 }
             } else {
-                SessionContent(
-                    engine, session, strings, language, ::refresh,
-                    onRestart = { resetSession() },
-                    boardBitmap = boardBitmap,
-                    canLiveMap = boardBitmap != null && hasApiKey,
-                    mappingBusy = mappingBusy,
-                    mappingError = mappingError,
-                    liveMapping = liveMapping,
-                    onMapRequest = ::startMapping,
-                    sparkBusy = sparkBusy,
-                    onSparkRequest = ::startSpark,
-                    referenceBitmap = referenceBitmap
-                        .takeIf { referenceForId != null &&
-                            referenceForId == session.verdictComponentId },
-                    referenceBusy = referenceBusy,
-                    referenceError = referenceError,
-                    onReferenceRequest = ::startReference,
-                )
+                // key: la seleccion del mapa y los avisos no pasan de un proyecto a otro.
+                key(project.id) {
+                    SessionContent(
+                        engineFor(project), session, strings, language,
+                        refresh = { refresh(project.id) },
+                        onRestart = { restartProject(project.id) },
+                        onBackToProjects = ::closeProject,
+                        boardBitmap = boardBitmap,
+                        canLiveMap = boardBitmap != null && hasApiKey,
+                        mappingBusy = project.id in mappingBusy,
+                        mappingError = mappingError,
+                        liveMapping = project.liveMapping,
+                        onMapRequest = { startMapping(project) },
+                        sparkBusy = project.id in sparkBusy,
+                        onSparkRequest = { startSpark(project) },
+                        referenceBitmap = referenceBitmap
+                            .takeIf { project.referenceComponentId != null &&
+                                project.referenceComponentId == session.verdictComponentId },
+                        referenceBusy = project.id in referenceBusy,
+                        referenceError = referenceError,
+                        onReferenceRequest = { startReference(project) },
+                    )
+                }
+            }
+            if (project.started && !project.waiting && session.stage != Stage.VERIFIED) {
+                PauseCard(strings, project.id) { note ->
+                    updateProject(project.id) { it.paused(note, System.currentTimeMillis()) }
+                }
             }
         }
     }
@@ -1084,6 +1296,228 @@ private fun AboutContent(
     }
 }
 
+/** "Mis reparaciones": lo ultimo tocado arriba, como una lista de chats. */
+@Composable
+private fun ProjectList(
+    strings: AppStrings,
+    projects: List<RepairProject>,
+    thumbnails: Map<String, Bitmap>,
+    onOpen: (String) -> Unit,
+    onCreate: () -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    val now = System.currentTimeMillis()
+    val zone = remember { ZoneId.systemDefault() }
+    Text(strings.projectsTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Button(onClick = onCreate, modifier = Modifier.fillMaxWidth()) {
+        Text("+ ${strings.newProject}")
+    }
+    if (projects.isEmpty()) {
+        Text(strings.projectsEmpty, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    projects.forEach { project ->
+        val subtitle = projectSubtitle(
+            project, strings, relativeTime(now, project.updatedAtMillis, zone, strings),
+        )
+        // key: el estado del gesto es de este proyecto y no pasa al siguiente al borrar.
+        key(project.id) {
+            SwipeToDelete(strings.swipeDelete, onDelete = { onDelete(project.id) }) {
+                ProjectCard(project, subtitle, thumbnails[project.id]) { onOpen(project.id) }
+            }
+        }
+    }
+    if (projects.isNotEmpty()) {
+        Text(
+            strings.swipeHint,
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ProjectCard(
+    project: RepairProject,
+    subtitle: String,
+    thumbnail: Bitmap?,
+    onOpen: () -> Unit,
+) {
+    Card(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ProjectThumbnail(thumbnail)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    project.title,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    subtitle,
+                    fontSize = 14.sp,
+                    color = if (projectStatus(project) == ProjectStatus.WAITING) {
+                        MaterialTheme.colorScheme.secondary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Deslizar hacia cualquier costado revela el fondo rojo de borrar; pasado el
+ * 40 % del ancho (no un roce al desplazar la lista) se confirma el borrado.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(label: String, onDelete: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(positionalThreshold = { it * 0.4f })
+    LaunchedEffect(state.currentValue) {
+        if (state.currentValue != SwipeToDismissBoxValue.Settled) onDelete()
+    }
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            val direction = state.dismissDirection
+            if (direction != SwipeToDismissBoxValue.Settled) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(Color(0xFFB00020), CardDefaults.shape)
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                        Alignment.CenterStart
+                    } else {
+                        Alignment.CenterEnd
+                    },
+                ) {
+                    Text(label, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+    ) { content() }
+}
+
+/** Foto de la placa en miniatura; sin foto, la marca de la app. */
+@Composable
+private fun ProjectThumbnail(bitmap: Bitmap?) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        Modifier.size(56.dp).clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            AppMark()
+        }
+    }
+}
+
+/** Volver a la lista y nombre del proyecto: tocarlo permite renombrarlo. */
+@Composable
+private fun ProjectHeader(
+    strings: AppStrings,
+    project: RepairProject,
+    onBack: () -> Unit,
+    onRename: (String) -> Unit,
+) {
+    var editing by rememberSaveable(project.id) { mutableStateOf(false) }
+    var draft by rememberSaveable(project.id) { mutableStateOf(project.title) }
+    fun save() {
+        onRename(draft)
+        editing = false
+    }
+    TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
+        Text(strings.backToProjects)
+    }
+    if (editing) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            label = { Text(strings.projectNameLabel) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { save() }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = { save() }, modifier = Modifier.fillMaxWidth()) {
+            Text(strings.renameSave)
+        }
+    } else {
+        Text(
+            "${project.title}  ✎",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth().clickable {
+                draft = project.title
+                editing = true
+            },
+        )
+    }
+}
+
+/** Proyecto en espera de un repuesto: que falta y como retomarlo. */
+@Composable
+private fun WaitingCard(strings: AppStrings, project: RepairProject, onResume: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                strings.statusWaiting +
+                    (project.waitingNote?.let { " · " + strings.missingPart(it) } ?: ""),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            Button(onClick = onResume, modifier = Modifier.fillMaxWidth()) {
+                Text(strings.waitingResume)
+            }
+        }
+    }
+}
+
+/** Pausa por repuesto: el primer toque pide (opcional) que falta; el segundo la confirma. */
+@Composable
+private fun PauseCard(strings: AppStrings, projectId: String, onPause: (String) -> Unit) {
+    var askNote by rememberSaveable(projectId) { mutableStateOf(false) }
+    var note by rememberSaveable(projectId) { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (askNote) {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text(strings.waitingNoteLabel) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            OutlinedButton(
+                onClick = {
+                    if (askNote) {
+                        onPause(note)
+                        askNote = false
+                        note = ""
+                    } else {
+                        askNote = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(strings.waitingMark) }
+        }
+    }
+}
+
 @Composable
 private fun SessionContent(
     engine: DiagnosisEngine,
@@ -1092,6 +1526,7 @@ private fun SessionContent(
     language: AppLanguage,
     refresh: () -> Unit,
     onRestart: () -> Unit,
+    onBackToProjects: () -> Unit,
     boardBitmap: Bitmap?,
     canLiveMap: Boolean,
     mappingBusy: Boolean,
@@ -1256,7 +1691,7 @@ private fun SessionContent(
 
         Stage.VERIFIED -> {
             Text(strings.verifiedOk, fontWeight = FontWeight.Bold)
-            OutlinedButton(onClick = onRestart) { Text(strings.backHome) }
+            OutlinedButton(onClick = onBackToProjects) { Text(strings.backHome) }
         }
     }
 }
@@ -1505,38 +1940,17 @@ private fun loadBitmapDownscaled(context: Context, uri: Uri, maxDimension: Int =
     )
 }
 
-private fun boardPhotoFile(context: Context): File = File(context.filesDir, BOARD_PHOTO_FILE)
-
-private fun saveBoardPhoto(context: Context, bitmap: Bitmap) {
-    runCatching {
-        FileOutputStream(boardPhotoFile(context)).use { output ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
-        }
-    }
-}
-
-private fun loadSavedBoardPhoto(context: Context): Bitmap? {
-    val file = boardPhotoFile(context)
-    return if (file.isFile) runCatching { BitmapFactory.decodeFile(file.absolutePath) }
-        .getOrNull() else null
-}
-
-private fun deleteSavedBoardPhoto(context: Context) {
-    runCatching { boardPhotoFile(context).delete() }
-}
-
-private fun saveReferencePhoto(context: Context, bitmap: Bitmap) {
-    runCatching {
-        FileOutputStream(File(context.filesDir, REFERENCE_PHOTO_FILE)).use { output ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
-        }
-    }
-}
-
-private fun loadSavedReferencePhoto(context: Context): Bitmap? {
-    val file = File(context.filesDir, REFERENCE_PHOTO_FILE)
-    return if (file.isFile) runCatching { BitmapFactory.decodeFile(file.absolutePath) }
-        .getOrNull() else null
+/** Miniatura de la lista a partir de la foto recien elegida. */
+private fun thumbnailOf(bitmap: Bitmap): Bitmap {
+    val longest = maxOf(bitmap.width, bitmap.height)
+    if (longest <= THUMB_PX) return bitmap
+    val scale = THUMB_PX.toFloat() / longest
+    return Bitmap.createScaledBitmap(
+        bitmap,
+        (bitmap.width * scale).toInt().coerceAtLeast(1),
+        (bitmap.height * scale).toInt().coerceAtLeast(1),
+        true,
+    )
 }
 
 /** Abre los ajustes de la app (salida cuando el permiso quedo denegado). */

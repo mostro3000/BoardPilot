@@ -3,6 +3,9 @@ package ar.com.mt0.boardpilot.domain
 import ar.com.mt0.boardpilot.demo.DemoCaseSmps
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,6 +74,103 @@ class RepairProjectTest {
         val long = autoProjectTitle("a".repeat(80), "X")
         assertEquals(48, long.length)
         assertTrue(long.endsWith("…"))
+    }
+
+    @Test
+    fun `avanzar la sesion levanta la pausa y sin cambios la conserva`() {
+        val waiting = project(waiting = true, stage = Stage.VERDICT)
+        val same = waiting.withProgress(waiting.session, true, true, 500L)
+        assertTrue(same.waiting)
+        assertEquals("MOSFET de primario", same.waitingNote)
+        assertEquals(500L, same.updatedAtMillis)
+
+        val advanced = waiting.withProgress(
+            waiting.session.copy(stage = Stage.REPAIR), true, true, 600L)
+        assertFalse(advanced.waiting)
+        assertNull(advanced.waitingNote)
+        assertEquals(Stage.REPAIR, advanced.session.stage)
+    }
+
+    @Test
+    fun `pausa con nota limpia, sin nota y reanudar`() {
+        val paused = project().paused("  MOSFET   2N60 ", 700L)
+        assertTrue(paused.waiting)
+        assertEquals("MOSFET 2N60", paused.waitingNote)
+        assertEquals(ProjectStatus.WAITING, projectStatus(paused))
+        assertNull(project().paused("   ", 700L).waitingNote)
+
+        val resumed = paused.resumed(800L)
+        assertFalse(resumed.waiting)
+        assertNull(resumed.waitingNote)
+        assertEquals(800L, resumed.updatedAtMillis)
+    }
+
+    @Test
+    fun `renombrar ignora vacio y normaliza espacios`() {
+        val p = project()
+        assertSame(p, p.renamed("   ", 900L))
+        val renamed = p.renamed("  Cargador   del taller ", 900L)
+        assertEquals("Cargador del taller", renamed.title)
+        assertEquals(900L, renamed.updatedAtMillis)
+    }
+
+    @Test
+    fun `titulo automatico solo reemplaza el titulo por defecto`() {
+        val defaults = setOf("Nueva reparación", "New repair")
+        val fresh = project().let {
+            it.copy(title = "New repair", session = it.session.copy(symptom = "Fuente USB muerta"))
+        }
+        assertEquals("Fuente USB muerta", fresh.withAutoTitle(defaults).title)
+        val named = project().copy(title = "Cargador del taller")
+        assertEquals("Cargador del taller", named.withAutoTitle(defaults).title)
+    }
+
+    @Test
+    fun `proyecto sin tocar se descarta y cualquier avance lo conserva`() {
+        val defaults = setOf("Nueva reparación", "New repair")
+        val fresh = project(updated = 50L).copy(title = "New repair", started = false)
+        assertTrue(fresh.isUntouched(defaults))
+        assertFalse(fresh.copy(updatedAtMillis = 60L).isUntouched(defaults)) // foto nueva
+        assertFalse(fresh.renamed("Fuente del taller", 60L).isUntouched(defaults))
+        assertFalse(fresh.copy(started = true).isUntouched(defaults))
+    }
+
+    @Test
+    fun `migracion de la sesion unica anterior`() {
+        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
+            symptom = "Fuente USB muerta", stage = Stage.HYPOTHESES)
+        val text = SessionCodec.encode(session)
+        val fresh = DemoCaseSmps.newSession(AppLanguage.ES)
+        fun migrate(
+            sessionText: String?, started: Boolean, hasPhoto: Boolean,
+        ) = legacyProject(
+            sessionText, started, liveMapping = true, referenceComponentId = "dmg1-spark",
+            hasPhoto = hasPhoto, freshSession = fresh, id = "p1", nowMillis = 42L,
+            fallbackTitle = "Nueva reparación",
+        )
+
+        val migrated = migrate(text, started = true, hasPhoto = true)!!
+        assertEquals("Fuente USB muerta", migrated.title)
+        assertEquals(session, migrated.session)
+        assertTrue(migrated.started && migrated.liveMapping)
+        assertEquals("dmg1-spark", migrated.referenceComponentId)
+
+        // Solo quedaba la foto (demo reiniciado, o sesion ilegible): se
+        // conserva sin iniciar y sin la referencia de un veredicto viejo.
+        listOf(
+            migrate(null, started = false, hasPhoto = true)!!,
+            migrate(text, started = false, hasPhoto = true)!!,
+            migrate("BASURA", started = true, hasPhoto = true)!!,
+        ).forEach { photoOnly ->
+            assertEquals("Nueva reparación", photoOnly.title)
+            assertEquals(fresh, photoOnly.session)
+            assertFalse(photoOnly.started || photoOnly.liveMapping)
+            assertNull(photoOnly.referenceComponentId)
+        }
+        // Sin diagnostico retomable ni foto: no se crea proyecto.
+        assertNull(migrate(text, started = false, hasPhoto = false))
+        assertNull(migrate("BASURA", started = true, hasPhoto = false))
+        assertNull(migrate(null, started = true, hasPhoto = false))
     }
 
     @Test

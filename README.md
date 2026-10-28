@@ -25,6 +25,9 @@ todo vía **Meta Model API**, desde una **app Android nativa sin servidor propio
   en el dominio (la compuerta de seguridad la fija el código, no el modelo). Circuito
   completo verificado en un S25 con una fuente real. Smokes: `tools/smoke_sam.py`,
   `tools/smoke_spark.py`.
+- ✅ Mis reparaciones (28 oct): proyectos guardados como chats — cada placa con su foto,
+  diagnóstico y referencia; estados En curso / En espera de repuesto / Reparada; borrar
+  deslizando hacia un costado (con Deshacer).
 - ⏳ Siguiente: caso dorado con falla real confirmada por medición, APK release y video.
 
 ## Seguridad ante todo

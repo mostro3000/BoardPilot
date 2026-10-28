@@ -117,10 +117,20 @@ interface AppStrings {
     val waitingMark: String
     val waitingResume: String
     val waitingNoteLabel: String
-    val deleteProject: String
-    val deleteProjectConfirm: String
+    val swipeDelete: String
+    val swipeHint: String
+    val undo: String
+    fun projectDeleted(title: String): String
     val projectNameLabel: String
     val backToProjects: String
+    val renameSave: String
+    fun missingPart(note: String): String
+    val justNow: String
+    val yesterday: String
+    fun minutesAgo(minutes: Long): String
+    fun hoursAgo(hours: Long): String
+    /** Fecha corta de la lista; [year] nulo si es el año en curso. */
+    fun shortDate(day: Int, month: Int, year: Int?): String
     val referenceTitle: String
     val referenceGenerate: String
     val referenceBusy: String
@@ -235,10 +245,23 @@ object EsStrings : AppStrings {
     override val waitingMark = "Pausar: falta un repuesto"
     override val waitingResume = "Reanudar reparación"
     override val waitingNoteLabel = "Repuesto que falta"
-    override val deleteProject = "Borrar proyecto"
-    override val deleteProjectConfirm = "¿Seguro? Tocá de nuevo para borrar"
+    override val swipeDelete = "🗑 Borrar"
+    override val swipeHint = "Deslizá una reparación hacia un costado para borrarla."
+    override val undo = "Deshacer"
+    override fun projectDeleted(title: String) = "Se borró «$title»"
     override val projectNameLabel = "Nombre del proyecto"
     override val backToProjects = "← Mis reparaciones"
+    override val renameSave = "Guardar nombre"
+    override fun missingPart(note: String) = "falta: $note"
+    override val justNow = "recién"
+    override val yesterday = "ayer"
+    override fun minutesAgo(minutes: Long) = "hace $minutes min"
+    override fun hoursAgo(hours: Long) = "hace $hours h"
+    override fun shortDate(day: Int, month: Int, year: Int?): String {
+        val name = listOf("ene", "feb", "mar", "abr", "may", "jun",
+            "jul", "ago", "sep", "oct", "nov", "dic")[month - 1]
+        return "$day $name" + (year?.let { " $it" } ?: "")
+    }
     override val referenceTitle = "Referencia de reparación"
     override val referenceGenerate = "Ver referencia de reparación (Muse Image)"
     override val referenceBusy = "Generando referencia con Muse Image..."
@@ -376,10 +399,23 @@ object EnStrings : AppStrings {
     override val waitingMark = "Pause: waiting for a part"
     override val waitingResume = "Resume repair"
     override val waitingNoteLabel = "Part needed"
-    override val deleteProject = "Delete project"
-    override val deleteProjectConfirm = "Sure? Tap again to delete"
+    override val swipeDelete = "🗑 Delete"
+    override val swipeHint = "Swipe a repair sideways to delete it."
+    override val undo = "Undo"
+    override fun projectDeleted(title: String) = "Deleted “$title”"
     override val projectNameLabel = "Project name"
     override val backToProjects = "← My repairs"
+    override val renameSave = "Save name"
+    override fun missingPart(note: String) = "needs: $note"
+    override val justNow = "just now"
+    override val yesterday = "yesterday"
+    override fun minutesAgo(minutes: Long) = "$minutes min ago"
+    override fun hoursAgo(hours: Long) = "$hours h ago"
+    override fun shortDate(day: Int, month: Int, year: Int?): String {
+        val name = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")[month - 1]
+        return "$name $day" + (year?.let { ", $it" } ?: "")
+    }
     override val referenceTitle = "Repair reference"
     override val referenceGenerate = "View repair reference (Muse Image)"
     override val referenceBusy = "Generating reference with Muse Image..."

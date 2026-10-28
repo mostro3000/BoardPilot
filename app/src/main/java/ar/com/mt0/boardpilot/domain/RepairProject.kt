@@ -44,6 +44,91 @@ fun sortedProjects(projects: List<RepairProject>): List<RepairProject> =
     )
 
 /**
+ * Vuelca el avance del diagnóstico al proyecto. Si la sesión cambió, el
+ * técnico volvió a trabajar sobre la placa: la pausa por repuesto se levanta.
+ */
+fun RepairProject.withProgress(
+    session: DiagnosisSession,
+    started: Boolean,
+    liveMapping: Boolean,
+    nowMillis: Long,
+): RepairProject {
+    val resumed = waiting && session != this.session
+    return copy(
+        session = session,
+        started = started,
+        liveMapping = liveMapping,
+        updatedAtMillis = nowMillis,
+        waiting = waiting && !resumed,
+        waitingNote = if (resumed) null else waitingNote,
+    )
+}
+
+/** Pausa por repuesto: la nota (qué falta) es opcional. */
+fun RepairProject.paused(note: String, nowMillis: Long): RepairProject = copy(
+    waiting = true,
+    waitingNote = note.trim().replace(Regex("\\s+"), " ").ifEmpty { null },
+    updatedAtMillis = nowMillis,
+)
+
+fun RepairProject.resumed(nowMillis: Long): RepairProject =
+    copy(waiting = false, waitingNote = null, updatedAtMillis = nowMillis)
+
+/** Renombrar: un nombre vacío no pisa el anterior. */
+fun RepairProject.renamed(name: String, nowMillis: Long): RepairProject {
+    val clean = name.trim().replace(Regex("\\s+"), " ")
+    return if (clean.isEmpty() || clean == title) this
+    else copy(title = clean, updatedAtMillis = nowMillis)
+}
+
+/**
+ * Proyecto recién creado y sin tocar (sin iniciar, sin renombrar, sin foto
+ * nueva): como un chat vacío, no vale la pena guardarlo al volver a la lista.
+ */
+fun RepairProject.isUntouched(defaultTitles: Set<String>): Boolean =
+    !started && !waiting && updatedAtMillis == createdAtMillis && title in defaultTitles
+
+/**
+ * Al iniciar el diagnóstico, un proyecto que conserva el título por defecto
+ * (en cualquier idioma) pasa a llamarse como su síntoma; uno renombrado no.
+ */
+fun RepairProject.withAutoTitle(defaultTitles: Set<String>): RepairProject =
+    if (title in defaultTitles) copy(title = autoProjectTitle(session.symptom, title))
+    else this
+
+/**
+ * Migración de la sesión única anterior a los proyectos: un diagnóstico
+ * iniciado y legible pasa a ser el proyecto 1 tal cual (con su referencia);
+ * si solo quedaba la foto, el proyecto 1 la conserva sin iniciar, con
+ * [freshSession]. Sin diagnóstico ni foto, no se crea ningún proyecto.
+ */
+fun legacyProject(
+    sessionText: String?,
+    started: Boolean,
+    liveMapping: Boolean,
+    referenceComponentId: String?,
+    hasPhoto: Boolean,
+    freshSession: DiagnosisSession,
+    id: String,
+    nowMillis: Long,
+    fallbackTitle: String,
+): RepairProject? {
+    val resumable = sessionText?.takeIf { started }
+        ?.let { runCatching { SessionCodec.decode(it) }.getOrNull() }
+    if (resumable == null && !hasPhoto) return null
+    return RepairProject(
+        id = id,
+        title = resumable?.let { autoProjectTitle(it.symptom, fallbackTitle) } ?: fallbackTitle,
+        createdAtMillis = nowMillis,
+        updatedAtMillis = nowMillis,
+        started = resumable != null,
+        liveMapping = resumable != null && liveMapping,
+        referenceComponentId = referenceComponentId?.takeIf { resumable != null },
+        session = resumable ?: freshSession,
+    )
+}
+
+/**
  * Serializa la lista completa de proyectos en un texto versionado ("BPP1").
  * Cada proyecto va en una línea de campos separados por `|`, con los textos
  * en Base64 URL sin padding (`~` = nulo) y la sesión anidada ya codificada
