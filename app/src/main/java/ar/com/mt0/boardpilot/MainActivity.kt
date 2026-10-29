@@ -231,6 +231,8 @@ private val BoardPilotLightColors = lightColorScheme(
     onSurface = Color(0xFF211114),
     onSurfaceVariant = Color(0xFF524144),
     outline = Color(0xFF857375),
+    // Avisos en rojo vivo; en oscuro, uno claro que se lea sobre el fondo.
+    error = Color(0xFFB00020),
     // Aviso de Deshacer: oscuro calido con la accion en ambar (no el violeta por defecto).
     inverseSurface = Color(0xFF342124),
     inverseOnSurface = Color(0xFFF7F3F2),
@@ -249,6 +251,7 @@ private val BoardPilotDarkColors = darkColorScheme(
     surfaceVariant = Color(0xFF342124),
     onSurfaceVariant = Color(0xFFD8C2BE),
     outline = Color(0xFFA08C89),
+    error = Color(0xFFFFB4AB),
     // Aviso de Deshacer: claro calido con la accion en bordo.
     inverseSurface = Color(0xFFF1E4E1),
     inverseOnSurface = Color(0xFF211114),
@@ -1093,7 +1096,7 @@ fun BoardPilotApp(
                         )
                         BoardTypePicker(strings, boardTypeDraft) { boardTypeDraft = it }
                         if (!hasApiKey) {
-                            Text(strings.needKey, color = Color(0xFFB00020))
+                            Text(strings.needKey, color = MaterialTheme.colorScheme.error)
                             OutlinedButton(
                                 onClick = { showSettings = true; showAbout = false },
                                 modifier = Modifier.fillMaxWidth(),
@@ -1475,7 +1478,7 @@ private fun AboutContent(
                         else strings.permissionNotGranted,
                         fontWeight = FontWeight.Bold,
                         color = if (granted) MaterialTheme.colorScheme.secondary
-                        else Color(0xFFB00020),
+                        else MaterialTheme.colorScheme.error,
                         modifier = if (tappable) {
                             Modifier.clickable { onPermissionTap(permission) }
                         } else {
@@ -1743,7 +1746,7 @@ private fun SessionContent(
         fontWeight = FontWeight.Bold)
     Text("${strings.symptomLabel}: ${session.symptom}")
     Text("${strings.boardTypeLabel}: ${strings.boardTypeName(session.boardType)}")
-    mappingError?.let { Text(it, color = Color(0xFFB00020)) }
+    mappingError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     if (session.components.isNotEmpty()) {
         // En el mapa: que medir ahora (o el veredicto), lo ya medido y el % de cada hipotesis.
         val measuringStage = session.stage == Stage.HYPOTHESES || session.stage == Stage.MEASURING
@@ -1788,11 +1791,11 @@ private fun SessionContent(
                 (comp.visibleDamage?.let { " · ⚠ $it" } ?: ""))
         }
     }
-    message?.let { Text(it, color = Color(0xFFB00020)) }
+    message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
     when (session.stage) {
         Stage.INTAKE -> {
-            if (!canLiveMap) Text(strings.needPhotoAndKey, color = Color(0xFFB00020))
+            if (!canLiveMap) Text(strings.needPhotoAndKey, color = MaterialTheme.colorScheme.error)
             Button(
                 onClick = onMapRequest,
                 enabled = !mappingBusy && canLiveMap,
@@ -2002,7 +2005,7 @@ private fun ReferenceCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(strings.referenceTitle, fontWeight = FontWeight.Bold)
-            error?.let { Text(it, color = Color(0xFFB00020)) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
@@ -2789,7 +2792,7 @@ private fun PhotoCard(
                         PhotoNotice.CAMERA_PERMANENT -> strings.cameraPermissionPermanent
                         PhotoNotice.CAMERA_UNAVAILABLE -> strings.cameraUnavailable
                     },
-                    color = Color(0xFFB00020),
+                    color = MaterialTheme.colorScheme.error,
                 )
                 if (it == PhotoNotice.CAMERA_PERMANENT) {
                     OutlinedButton(
