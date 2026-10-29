@@ -26,20 +26,11 @@ class LanguageResolutionTest {
     }
 
     @Test
-    fun `la configuracion inicial exige clave e idioma o estar marcada completa`() {
-        assertEquals(true, isSetupComplete(storedCompleted = true, hasApiKey = false, hasLanguageChoice = false))
-        assertEquals(true, isSetupComplete(storedCompleted = false, hasApiKey = true, hasLanguageChoice = true))
-        assertEquals(false, isSetupComplete(storedCompleted = false, hasApiKey = true, hasLanguageChoice = false))
-        assertEquals(false, isSetupComplete(storedCompleted = false, hasApiKey = false, hasLanguageChoice = true))
-        assertEquals(false, isSetupComplete(storedCompleted = false, hasApiKey = false, hasLanguageChoice = false))
-    }
-
-    @Test
     fun `ambos paquetes de textos cubren textos clave distintos`() {
         val es = appStrings(AppLanguage.ES)
         val en = appStrings(AppLanguage.EN)
         assertNotEquals(es.appTagline, en.appTagline)
-        assertNotEquals(es.demoStart, en.demoStart)
+        assertNotEquals(es.needKey, en.needKey)
         assertNotEquals(es.verifiedOk, en.verifiedOk)
     }
 }

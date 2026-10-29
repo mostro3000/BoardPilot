@@ -97,6 +97,22 @@ fun RepairProject.withAutoTitle(defaultTitles: Set<String>): RepairProject =
     else this
 
 /**
+ * Proyecto mapeado con el modo demo (quitado el 28 oct): su mapa era el del
+ * caso de prueba y no el de su foto, así que no se puede continuar. Vuelve al
+ * ingreso con [freshSession]; conserva nombre, foto y fechas. Un mapeo real
+ * siempre queda con `liveMapping` (la foto no cambia después de iniciar).
+ */
+fun RepairProject.withoutDemoSession(freshSession: DiagnosisSession): RepairProject =
+    if (started && !liveMapping && session.stage != Stage.INTAKE) {
+        copy(
+            session = freshSession, started = false, referenceComponentId = null,
+            waiting = false, waitingNote = null,
+        )
+    } else {
+        this
+    }
+
+/**
  * Migración de la sesión única anterior a los proyectos: un diagnóstico
  * iniciado y legible pasa a ser el proyecto 1 tal cual (con su referencia);
  * si solo quedaba la foto, el proyecto 1 la conserva sin iniciar, con

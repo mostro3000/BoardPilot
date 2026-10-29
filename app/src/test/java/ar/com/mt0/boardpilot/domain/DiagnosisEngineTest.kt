@@ -1,6 +1,6 @@
 package ar.com.mt0.boardpilot.domain
 
-import ar.com.mt0.boardpilot.demo.DemoCaseSmps
+import ar.com.mt0.boardpilot.demo.GoldenCaseSmps
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -10,11 +10,11 @@ import org.junit.Test
 class DiagnosisEngineTest {
 
     private fun engineAtMeasuring(language: AppLanguage): DiagnosisEngine {
-        val engine = DiagnosisEngine(DemoCaseSmps.newSession(language))
-        engine.loadMapping(DemoCaseSmps.components(language))
+        val engine = DiagnosisEngine(GoldenCaseSmps.newSession(language))
+        engine.loadMapping(GoldenCaseSmps.components(language))
         engine.loadHypotheses(
-            DemoCaseSmps.hypotheses(language),
-            DemoCaseSmps.requests(language),
+            GoldenCaseSmps.hypotheses(language),
+            GoldenCaseSmps.requests(language),
         )
         engine.startMeasuring()
         return engine
@@ -22,13 +22,13 @@ class DiagnosisEngineTest {
 
     @Test
     fun `el tipo de placa se fija al ingreso o al mapear y no despues`() {
-        val engine = DiagnosisEngine(DemoCaseSmps.newSession(AppLanguage.ES))
+        val engine = DiagnosisEngine(GoldenCaseSmps.newSession(AppLanguage.ES))
         engine.updateBoardType(BoardType.UNKNOWN)
-        engine.loadMapping(DemoCaseSmps.components(AppLanguage.ES))
+        engine.loadMapping(GoldenCaseSmps.components(AppLanguage.ES))
         // Lo que detecta Muse Spark entra antes de cargar las hipotesis.
         engine.updateBoardType(BoardType.TV_MONITOR)
         assertEquals(BoardType.TV_MONITOR, engine.session.boardType)
-        engine.loadHypotheses(DemoCaseSmps.hypotheses(AppLanguage.ES), DemoCaseSmps.requests(AppLanguage.ES))
+        engine.loadHypotheses(GoldenCaseSmps.hypotheses(AppLanguage.ES), GoldenCaseSmps.requests(AppLanguage.ES))
         assertThrows(IllegalStateException::class.java) { engine.updateBoardType(BoardType.SMPS) }
     }
 
@@ -67,7 +67,7 @@ class DiagnosisEngineTest {
         engine.submitResult(MeasurementResult("m_q3", MeasurementOutcome.ABNORMAL))
 
         assertEquals(Stage.VERDICT, engine.session.stage)
-        assertEquals(DemoCaseSmps.EXPECTED_VERDICT_COMPONENT, engine.session.verdictComponentId)
+        assertEquals(GoldenCaseSmps.EXPECTED_VERDICT_COMPONENT, engine.session.verdictComponentId)
     }
 
     @Test
@@ -80,7 +80,7 @@ class DiagnosisEngineTest {
         engine.submitResult(MeasurementResult("m_q3", MeasurementOutcome.ABNORMAL))
 
         assertEquals(Stage.VERDICT, engine.session.stage)
-        assertEquals(DemoCaseSmps.EXPECTED_VERDICT_COMPONENT, engine.session.verdictComponentId)
+        assertEquals(GoldenCaseSmps.EXPECTED_VERDICT_COMPONENT, engine.session.verdictComponentId)
     }
 
     @Test
@@ -108,18 +108,18 @@ class DiagnosisEngineTest {
 
     @Test
     fun `sintoma editable solo al ingreso y dano visible sobre el mapeo`() {
-        val engine = DiagnosisEngine(DemoCaseSmps.newSession(AppLanguage.ES))
+        val engine = DiagnosisEngine(GoldenCaseSmps.newSession(AppLanguage.ES))
         engine.updateSymptom("  Cargador 18650 no enciende, sin LED  ")
         assertEquals("Cargador 18650 no enciende, sin LED", engine.session.symptom)
         engine.updateSymptom("   ")
         assertEquals("Cargador 18650 no enciende, sin LED", engine.session.symptom)
 
-        engine.loadMapping(DemoCaseSmps.components(AppLanguage.ES))
+        engine.loadMapping(GoldenCaseSmps.components(AppLanguage.ES))
         engine.addComponents(listOf(
             BoardComponent(SparkOutputParser.UNMAPPED_DAMAGE_ID, "DMG 1",
                 ComponentKind.OTHER, NormBox(0.55f, 0.56f, 0.23f, 0.15f),
                 visibleDamage = "Zona carbonizada"),
-            DemoCaseSmps.components(AppLanguage.ES).first(),
+            GoldenCaseSmps.components(AppLanguage.ES).first(),
         ))
         assertEquals(7, engine.session.components.size)
         engine.applyVisibleDamage(mapOf("q3" to "Quemado"))
@@ -137,7 +137,7 @@ class DiagnosisEngineTest {
             engine.submitResult(MeasurementResult("m_f1", MeasurementOutcome.NORMAL))
             engine.confirmSafety()
             engine.submitResult(MeasurementResult("m_q3", MeasurementOutcome.ABNORMAL))
-            engine.markRepaired(DemoCaseSmps.replacement(language))
+            engine.markRepaired(GoldenCaseSmps.replacement(language))
             engine.markVerified(powersOn = true)
             assertEquals(Stage.VERIFIED, engine.session.stage)
         }

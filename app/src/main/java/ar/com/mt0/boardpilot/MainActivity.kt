@@ -137,7 +137,6 @@ import androidx.core.content.FileProvider
 import ar.com.mt0.boardpilot.api.MetaImageClient
 import ar.com.mt0.boardpilot.api.MetaSamClient
 import ar.com.mt0.boardpilot.api.MetaSparkClient
-import ar.com.mt0.boardpilot.demo.DemoCaseSmps
 import ar.com.mt0.boardpilot.domain.BoardComponent
 import ar.com.mt0.boardpilot.domain.BoardPlaybooks
 import ar.com.mt0.boardpilot.domain.BoardType
@@ -178,6 +177,7 @@ import ar.com.mt0.boardpilot.domain.Stage
 import ar.com.mt0.boardpilot.domain.ThemeMode
 import ar.com.mt0.boardpilot.domain.TitleTapDetector
 import ar.com.mt0.boardpilot.domain.isUntouched
+import ar.com.mt0.boardpilot.domain.newDiagnosisSession
 import ar.com.mt0.boardpilot.domain.paused
 import ar.com.mt0.boardpilot.domain.projectStatus
 import ar.com.mt0.boardpilot.domain.renamed
@@ -186,13 +186,12 @@ import ar.com.mt0.boardpilot.domain.resumed
 import ar.com.mt0.boardpilot.domain.sortedProjects
 import ar.com.mt0.boardpilot.domain.withAutoTitle
 import ar.com.mt0.boardpilot.domain.withProgress
-import ar.com.mt0.boardpilot.i18n.AppLanguage
+import ar.com.mt0.boardpilot.domain.withoutDemoSession
 import ar.com.mt0.boardpilot.i18n.AppStrings
 import ar.com.mt0.boardpilot.i18n.EnStrings
 import ar.com.mt0.boardpilot.i18n.EsStrings
 import ar.com.mt0.boardpilot.i18n.LanguageMode
 import ar.com.mt0.boardpilot.i18n.appStrings
-import ar.com.mt0.boardpilot.i18n.isSetupComplete
 import ar.com.mt0.boardpilot.i18n.projectSubtitle
 import ar.com.mt0.boardpilot.i18n.relativeTime
 import ar.com.mt0.boardpilot.i18n.resolveLanguage
@@ -210,7 +209,6 @@ import kotlin.math.roundToInt
 private const val PREFS = "boardpilot_prefs"
 private const val PREF_API_KEY = "model_api_key"
 private const val PREF_LANGUAGE = "language_mode"
-private const val PREF_SETUP_DONE = "setup_completed"
 private const val PREF_THEME = "theme_mode"
 private const val PREF_EFFORT = "reasoning_effort"
 /** Lado mayor de la miniatura de cada proyecto en la lista. */
@@ -344,37 +342,25 @@ fun BoardPilotApp(
     var hasApiKey by remember {
         mutableStateOf(!prefs.getString(PREF_API_KEY, null).isNullOrBlank())
     }
-    var setupCompleted by remember {
-        mutableStateOf(
-            isSetupComplete(
-                storedCompleted = prefs.getBoolean(PREF_SETUP_DONE, false),
-                hasApiKey = !prefs.getString(PREF_API_KEY, null).isNullOrBlank(),
-                hasLanguageChoice = prefs.contains(PREF_LANGUAGE),
-            ),
-        )
-    }
-    var showSettings by rememberSaveable { mutableStateOf(false) }
+    // Sin clave la app no puede diagnosticar: abre directo en Configuracion,
+    // con la clave primero.
+    var showSettings by rememberSaveable { mutableStateOf(!hasApiKey) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showEasterEgg by rememberSaveable { mutableStateOf(false) }
-
-    fun completeSetup() {
-        if (!setupCompleted) {
-            setupCompleted = true
-            prefs.edit().putBoolean(PREF_SETUP_DONE, true).apply()
-        }
-    }
 
     // Reparaciones guardadas, como los chats: la app abre en la lista y cada
     // proyecto conserva su sesion, su foto y su referencia (archivos por id).
     val store = remember { ProjectStore.get(context) }
     val defaultTitles = remember { setOf(EsStrings.newProjectTitle, EnStrings.newProjectTitle) }
     var projects by remember {
-        mutableStateOf(
-            store.load(
-                prefs, DemoCaseSmps.newSession(language), strings.newProjectTitle,
-                System.currentTimeMillis(),
-            ),
+        val loaded = store.load(
+            prefs, newDiagnosisSession(), strings.newProjectTitle,
+            System.currentTimeMillis(),
         )
+        // Los proyectos que se mapearon con el demo vuelven al ingreso.
+        val cleaned = loaded.map { it.withoutDemoSession(newDiagnosisSession()) }
+        if (cleaned != loaded) store.save(cleaned)
+        mutableStateOf(cleaned)
     }
     var openProjectId by rememberSaveable { mutableStateOf<String?>(null) }
     val currentProject = projects.firstOrNull { it.id == openProjectId }
@@ -470,7 +456,7 @@ fun BoardPilotApp(
             title = strings.newProjectTitle,
             createdAtMillis = now,
             updatedAtMillis = now,
-            session = DemoCaseSmps.newSession(language),
+            session = newDiagnosisSession(),
         )
         projects = projects + project
         store.save(projects)
@@ -536,7 +522,7 @@ fun BoardPilotApp(
 
     /** Reinicia el diagnostico del proyecto; conserva nombre y foto. */
     fun restartProject(id: String) {
-        val fresh = DemoCaseSmps.newSession(language)
+        val fresh = newDiagnosisSession()
         engines[id] = DiagnosisEngine(fresh)
         updateProject(id) {
             it.copy(
@@ -697,8 +683,7 @@ fun BoardPilotApp(
         val bmp = boardBitmap
         val key = apiKey()
         if (bmp == null || key == null) {
-            engine.loadMapping(DemoCaseSmps.components(language))
-            refresh(id, liveMapping = false)
+            mappingError = strings.needPhotoAndKey
             return
         }
         mappingBusy += id
@@ -920,22 +905,12 @@ fun BoardPilotApp(
     fun onLanguageSelected(selected: LanguageMode) {
         mode = selected
         prefs.edit().putString(PREF_LANGUAGE, selected.name).apply()
-        if (hasApiKey) completeSetup()
-        // Los proyectos iniciados conservan sus textos (cada placa queda en
-        // el idioma en que se diagnostico); los que no arrancaron se rehacen.
-        val newLanguage = resolveLanguage(selected, systemLanguage)
-        val newTitle = appStrings(newLanguage).newProjectTitle
-        if (projects.any { !it.started }) {
+        // Los proyectos sin empezar con el titulo por defecto pasan al idioma nuevo;
+        // los iniciados conservan sus textos (cada placa en el idioma en que se diagnostico).
+        val newTitle = appStrings(resolveLanguage(selected, systemLanguage)).newProjectTitle
+        if (projects.any { !it.started && it.title in defaultTitles && it.title != newTitle }) {
             projects = projects.map { project ->
-                if (project.started) {
-                    project
-                } else {
-                    engines.remove(project.id)
-                    project.copy(
-                        session = DemoCaseSmps.newSession(newLanguage),
-                        title = if (project.title in defaultTitles) newTitle else project.title,
-                    )
-                }
+                if (!project.started && project.title in defaultTitles) project.copy(title = newTitle) else project
             }
             store.save(projects)
         }
@@ -943,7 +918,8 @@ fun BoardPilotApp(
 
     fun onApiKeyChanged(nowHasKey: Boolean) {
         hasApiKey = nowHasKey
-        if (nowHasKey && prefs.contains(PREF_LANGUAGE)) completeSetup()
+        // Con la clave guardada, de vuelta a la lista para empezar a diagnosticar.
+        if (nowHasKey) showSettings = false
     }
 
     // Toques en el titulo, patron MT: uno abre About tras una pausa corta;
@@ -1043,26 +1019,21 @@ fun BoardPilotApp(
             AboutContent(strings, permissionTick, ::onAboutPermissionTap)
         } else if (showSettings) {
             Text(strings.settingsTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            // Sin clave, la clave primero: sin ella la app no diagnostica.
+            if (!hasApiKey) {
+                Text(strings.keyIntro)
+                ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
+            }
             LanguageCard(strings, mode, ::onLanguageSelected)
             ThemeCard(strings, themeMode, onThemeModeSelected)
             ReasoningCard(strings, reasoningEffort) { selected ->
                 reasoningEffort = selected
                 prefs.edit().putString(PREF_EFFORT, selected.name).apply()
             }
-            ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
+            if (hasApiKey) ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
         } else if (currentProject == null) {
             Text(strings.appTagline, fontWeight = FontWeight.Medium)
             Text(strings.safetyIntro)
-            if (!setupCompleted) {
-                Text(strings.firstSetupTitle, fontWeight = FontWeight.Bold)
-                Text(strings.firstSetupIntro)
-                LanguageCard(strings, mode, ::onLanguageSelected)
-                ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
-                OutlinedButton(
-                    onClick = { completeSetup() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(strings.continueWithoutKey) }
-            }
             ProjectList(
                 strings = strings,
                 projects = sortedProjects(projects),
@@ -1106,46 +1077,42 @@ fun BoardPilotApp(
                         onCrop = { croppingPhoto = true },
                     )
                 }
-                // Con foto y clave es un diagnostico real: el sintoma lo escribe
-                // el tecnico (Muse Spark lo necesita y titula el proyecto). Sin
-                // eso es el demo, y vacio usa el sintoma del caso demo.
-                val live = boardBitmap != null && hasApiKey
+                // El diagnostico necesita la foto, la clave y el sintoma (Muse Spark
+                // lo usa y titula el proyecto); si falta algo, se dice que.
+                val ready = boardBitmap != null && hasApiKey
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(if (live) strings.symptomTitle else strings.demoTitle,
-                            fontWeight = FontWeight.Bold)
+                        Text(strings.symptomTitle, fontWeight = FontWeight.Bold)
                         OutlinedTextField(
                             value = symptomDraft,
                             onValueChange = { symptomDraft = it },
                             label = { Text(strings.symptomLabel) },
-                            placeholder = {
-                                Text(if (live) strings.symptomPlaceholder else DemoCaseSmps.symptom(language))
-                            },
+                            placeholder = { Text(strings.symptomPlaceholder) },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        if (!live) {
-                            Text(strings.demoSymptomNote, fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            BoardTypePicker(strings, boardTypeDraft) { boardTypeDraft = it }
+                        BoardTypePicker(strings, boardTypeDraft) { boardTypeDraft = it }
+                        if (!hasApiKey) {
+                            Text(strings.needKey, color = Color(0xFFB00020))
+                            OutlinedButton(
+                                onClick = { showSettings = true; showAbout = false },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(strings.loadKey) }
+                        } else if (boardBitmap == null) {
+                            Text(strings.needPhoto, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Button(
-                            onClick = {
-                                startDiagnosis(project, if (live) boardTypeDraft else BoardType.SMPS)
-                            },
-                            enabled = !live || symptomDraft.isNotBlank(),
+                            onClick = { startDiagnosis(project, boardTypeDraft) },
+                            enabled = ready && symptomDraft.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(if (live) strings.diagnoseStart else strings.demoStart)
-                        }
+                        ) { Text(strings.diagnoseStart) }
                     }
                 }
             } else {
                 // key: la seleccion del mapa y los avisos no pasan de un proyecto a otro.
                 key(project.id) {
                     SessionContent(
-                        engineFor(project), session, strings, language,
+                        engineFor(project), session, strings,
                         refresh = { refresh(project.id) },
                         onRestart = { restartProject(project.id) },
                         onBackToProjects = ::closeProject,
@@ -1153,7 +1120,6 @@ fun BoardPilotApp(
                         canLiveMap = boardBitmap != null && hasApiKey,
                         mappingBusy = project.id in mappingBusy,
                         mappingError = mappingError,
-                        liveMapping = project.liveMapping,
                         onMapRequest = { startMapping(project) },
                         sparkBusy = project.id in sparkBusy,
                         onSparkRequest = { startSpark(project) },
@@ -1749,7 +1715,6 @@ private fun SessionContent(
     engine: DiagnosisEngine,
     session: DiagnosisSession,
     strings: AppStrings,
-    language: AppLanguage,
     refresh: () -> Unit,
     onRestart: () -> Unit,
     onBackToProjects: () -> Unit,
@@ -1757,7 +1722,6 @@ private fun SessionContent(
     canLiveMap: Boolean,
     mappingBusy: Boolean,
     mappingError: String?,
-    liveMapping: Boolean,
     onMapRequest: () -> Unit,
     sparkBusy: Boolean,
     onSparkRequest: () -> Unit,
@@ -1778,9 +1742,7 @@ private fun SessionContent(
     Text("${strings.stageLabel}: ${strings.stageName(session.stage)}",
         fontWeight = FontWeight.Bold)
     Text("${strings.symptomLabel}: ${session.symptom}")
-    if (liveMapping || session.boardType != BoardType.UNKNOWN) {
-        Text("${strings.boardTypeLabel}: ${strings.boardTypeName(session.boardType)}")
-    }
+    Text("${strings.boardTypeLabel}: ${strings.boardTypeName(session.boardType)}")
     mappingError?.let { Text(it, color = Color(0xFFB00020)) }
     if (session.components.isNotEmpty()) {
         // En el mapa: que medir ahora (o el veredicto), lo ya medido y el % de cada hipotesis.
@@ -1829,21 +1791,16 @@ private fun SessionContent(
     message?.let { Text(it, color = Color(0xFFB00020)) }
 
     when (session.stage) {
-        Stage.INTAKE -> Button(
-            onClick = onMapRequest,
-            enabled = !mappingBusy,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                when {
-                    mappingBusy -> strings.mappingBusy
-                    canLiveMap -> strings.mapLiveSam
-                    else -> strings.mapComponents
-                },
-            )
+        Stage.INTAKE -> {
+            if (!canLiveMap) Text(strings.needPhotoAndKey, color = Color(0xFFB00020))
+            Button(
+                onClick = onMapRequest,
+                enabled = !mappingBusy && canLiveMap,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (mappingBusy) strings.mappingBusy else strings.mapLiveSam) }
         }
 
-        Stage.MAPPING -> if (liveMapping) {
+        Stage.MAPPING -> {
             Text(strings.liveMappingNote)
             Button(
                 onClick = onSparkRequest,
@@ -1855,12 +1812,6 @@ private fun SessionContent(
             OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
                 Text(strings.startOver)
             }
-        } else {
-            Button(onClick = {
-                engine.loadHypotheses(
-                    DemoCaseSmps.hypotheses(language), DemoCaseSmps.requests(language))
-                refresh()
-            }) { Text(strings.generateHypotheses) }
         }
 
         Stage.HYPOTHESES -> {
@@ -1886,8 +1837,8 @@ private fun SessionContent(
                         ) { Text(strings.startMeasuring) }
                     }
                 }
-                // En vivo nunca es un callejon sin salida: se piden mediciones a Muse Spark.
-                liveMapping -> Card(Modifier.fillMaxWidth()) {
+                // Nunca es un callejon sin salida: se piden mediciones a Muse Spark.
+                else -> Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             if (session.results.isEmpty()) strings.noMeasurementsLive
@@ -1907,10 +1858,6 @@ private fun SessionContent(
                         }
                     }
                 }
-                else -> {
-                    Text(strings.needMoreEvidence)
-                    OutlinedButton(onClick = onRestart) { Text(strings.restartDemo) }
-                }
             }
         }
 
@@ -1925,14 +1872,13 @@ private fun SessionContent(
                         Text("${strings.measurementOf(done + 1, done + session.pendingRequests.size)}: " +
                             "${strings.kindName(req.kind)} · ${designatorOf(session, req.componentId)}",
                             fontWeight = FontWeight.Bold)
-                        // Guia visual: la lupa junto a las instrucciones (en el demo,
-                        // sin la foto del tecnico: sus cajas no son las del demo).
+                        // Guia visual: la lupa junto a las instrucciones.
                         if (target != null) {
                             ProbeLens(
-                                strings, boardBitmap.takeIf { liveMapping },
+                                strings, boardBitmap,
                                 session.components, target, req.probes,
                             )
-                            ProbeCaption(strings, req, liveMapping, probesBusy, onLocateProbes)
+                            ProbeCaption(strings, req, probesBusy, onLocateProbes)
                         }
                         MeterGuide(strings, req.kind)
                         Text(req.instruction)
@@ -1981,22 +1927,16 @@ private fun SessionContent(
             val comp = session.components.firstOrNull { it.id == session.verdictComponentId }
             Text("${strings.verdictPrefix} ${comp?.designator ?: "?"} (${comp?.kind ?: ""})",
                 fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            // En vivo, lo que Muse Spark dijo reemplazar para la hipotesis confirmada.
-            val suggested = session.hypotheses
+            // Lo que Muse Spark dijo reemplazar para la hipotesis confirmada.
+            val replacementText = session.hypotheses
                 .filter { it.componentId == session.verdictComponentId && it.fix.isNotBlank() }
                 .maxByOrNull { it.confidence }?.fix
-            val replacementText = if (liveMapping) {
-                suggested ?: strings.liveReplacement(comp?.designator ?: "?")
-            } else {
-                DemoCaseSmps.replacement(language)
-            }
+                ?: strings.liveReplacement(comp?.designator ?: "?")
             Text(replacementText)
-            if (liveMapping) {
-                ReferenceCard(
-                    strings, referenceBitmap, referenceBusy,
-                    referenceError, onReferenceRequest,
-                )
-            }
+            ReferenceCard(
+                strings, referenceBitmap, referenceBusy,
+                referenceError, onReferenceRequest,
+            )
             Button(onClick = {
                 engine.markRepaired(replacementText); refresh()
             }) { Text(strings.alreadyReplaced) }
@@ -2339,13 +2279,13 @@ private fun EvidenceChip(outcome: MeasurementOutcome, modifier: Modifier) {
     }
 }
 
-/** Proporcion (ancho/alto) del mapa del demo, que no tiene foto. */
-private const val DEMO_MAP_ASPECT = 1.5f
+/** Proporcion (ancho/alto) del mapa cuando no hay foto. */
+private const val NO_PHOTO_MAP_ASPECT = 1.5f
 
 /**
  * Lupa de la medicion: la zona de la foto alrededor del componente medido,
  * ampliada junto a las instrucciones, con su caja y donde va cada punta (roja
- * y negra, con su terminal). Sin foto (demo) dibuja las cajas sobre el fondo.
+ * y negra, con su terminal). Sin foto dibuja las cajas sobre el fondo.
  */
 @Composable
 private fun ProbeLens(
@@ -2359,7 +2299,7 @@ private fun ProbeLens(
     val measurer = rememberTextMeasurer()
     val amber = Color(0xFFFFB300)
     val points = guide?.points.orEmpty()
-    val photoAspect = bitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: DEMO_MAP_ASPECT
+    val photoAspect = bitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: NO_PHOTO_MAP_ASPECT
     val region = remember(target, guide, photoAspect) {
         BoardView.lensRegion(target.box, points.map { it.x to it.y }, photoAspect)
     }
@@ -2391,7 +2331,7 @@ private fun ProbeLens(
             )
             fit
         } else {
-            BoardView.fit(size.width, size.height, region.w * DEMO_MAP_ASPECT, region.h)
+            BoardView.fit(size.width, size.height, region.w * NO_PHOTO_MAP_ASPECT, region.h)
         }
         fun px(x: Float) = dst.left + (x - region.x) / region.w * dst.width
         fun py(y: Float) = dst.top + (y - region.y) / region.h * dst.height
@@ -2448,15 +2388,14 @@ private fun ProbeLegend(color: Color, tag: String, terminal: String) {
 }
 
 /**
- * Debajo de la lupa: de donde salen las puntas (IA o demo), si se estan
- * pidiendo, si las patas no se ven, y en diodos sin polaridad visible, que se
- * pruebe en los dos sentidos.
+ * Debajo de la lupa: que las puntas son sugerencia de IA, si se estan pidiendo,
+ * si las patas no se ven, y en diodos sin polaridad visible, que se pruebe en los
+ * dos sentidos.
  */
 @Composable
 private fun ProbeCaption(
     strings: AppStrings,
     request: MeasurementRequest,
-    live: Boolean,
     busy: Boolean,
     onLocate: () -> Unit,
 ) {
@@ -2466,11 +2405,11 @@ private fun ProbeCaption(
     guide?.black?.let { ProbeLegend(Color(0xFF111111), strings.blackTag, it.terminal) }
     when {
         guide == null && busy -> Text(strings.probesLoading, color = muted, fontSize = 14.sp)
-        guide == null && live -> TextButton(onClick = onLocate) { Text(strings.probesLocate) }
-        guide != null && guide.points.isEmpty() ->
+        guide == null -> TextButton(onClick = onLocate) { Text(strings.probesLocate) }
+        guide.points.isEmpty() ->
             Text("⚠ ${strings.probesHidden} ${guide.note}".trim(), fontSize = 14.sp)
-        guide != null -> Text(
-            (if (live) strings.probesAiNote else strings.probesDemoNote) +
+        else -> Text(
+            strings.probesAiNote +
                 guide.note.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty(),
             color = muted,
             fontSize = 14.sp,

@@ -1,6 +1,6 @@
 package ar.com.mt0.boardpilot.domain
 
-import ar.com.mt0.boardpilot.demo.DemoCaseSmps
+import ar.com.mt0.boardpilot.demo.GoldenCaseSmps
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,7 +17,7 @@ class RepairProjectTest {
         waiting: Boolean = false,
         stage: Stage = Stage.INTAKE,
     ): RepairProject {
-        val base = DemoCaseSmps.newSession(AppLanguage.ES)
+        val base = GoldenCaseSmps.newSession(AppLanguage.ES)
         return RepairProject(
             id = id,
             title = "Cargador 18650",
@@ -137,10 +137,10 @@ class RepairProjectTest {
 
     @Test
     fun `migracion de la sesion unica anterior`() {
-        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
             symptom = "Fuente USB muerta", stage = Stage.HYPOTHESES)
         val text = SessionCodec.encode(session)
-        val fresh = DemoCaseSmps.newSession(AppLanguage.ES)
+        val fresh = GoldenCaseSmps.newSession(AppLanguage.ES)
         fun migrate(
             sessionText: String?, started: Boolean, hasPhoto: Boolean,
         ) = legacyProject(
@@ -155,7 +155,7 @@ class RepairProjectTest {
         assertTrue(migrated.started && migrated.liveMapping)
         assertEquals("dmg1-spark", migrated.referenceComponentId)
 
-        // Solo quedaba la foto (demo reiniciado, o sesion ilegible): se
+        // Solo quedaba la foto (sesion sin iniciar, o ilegible): se
         // conserva sin iniciar y sin la referencia de un veredicto viejo.
         listOf(
             migrate(null, started = false, hasPhoto = true)!!,
@@ -181,5 +181,24 @@ class RepairProjectTest {
             project("medio", updated = 200L),
         ))
         assertEquals(listOf("nuevo", "medio", "viejo"), sorted.map { it.id })
+    }
+
+    @Test
+    fun `un proyecto mapeado con el demo vuelve al ingreso y uno real queda igual`() {
+        val fresh = newDiagnosisSession()
+        val demo = project(waiting = true, stage = Stage.MEASURING).copy(liveMapping = false)
+        val reset = demo.withoutDemoSession(fresh)
+        assertEquals(fresh, reset.session)
+        assertFalse(reset.started || reset.waiting)
+        assertNull(reset.referenceComponentId)
+        assertEquals(listOf(demo.id, demo.title), listOf(reset.id, reset.title))
+        assertEquals(demo.updatedAtMillis, reset.updatedAtMillis)
+
+        // Mapeo real, o iniciado pero sin mapear todavia: no se tocan.
+        listOf(
+            project(stage = Stage.MEASURING),
+            project(stage = Stage.INTAKE).copy(liveMapping = false),
+            project(stage = Stage.MAPPING).copy(started = false, liveMapping = false),
+        ).forEach { assertSame(it, it.withoutDemoSession(fresh)) }
     }
 }

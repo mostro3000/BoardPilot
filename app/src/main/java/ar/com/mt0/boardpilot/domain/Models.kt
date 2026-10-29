@@ -2,7 +2,7 @@ package ar.com.mt0.boardpilot.domain
 
 /**
  * Tipos de dominio puros (sin Android), testeables en JVM.
- * Los textos visibles llegan ya localizados (ES/EN) desde la capa i18n/demo;
+ * Los textos visibles llegan ya localizados (ES/EN) desde la capa i18n o Muse Spark;
  * el dominio solo maneja claves estables (SafetyGate, RejectReason, Stage).
  */
 
@@ -50,7 +50,7 @@ data class Hypothesis(
     val confidence: Double,
     val rationale: String,
     val confirmedByMeasurement: Boolean = false,
-    /** Que reemplazar o reparar si se confirma (sugerencia del modelo; vacio en el demo). */
+    /** Que reemplazar o reparar si se confirma (sugerencia del modelo; puede faltar). */
     val fix: String = "",
 )
 
@@ -79,7 +79,7 @@ fun safetyGateFor(kind: MeasurementKind): SafetyGate = when (kind) {
 data class ProbePoint(val componentId: String, val x: Float, val y: Float, val terminal: String)
 
 /**
- * Guia de puntas de una medicion (sugerida por Muse Spark o fija en el demo).
+ * Guia de puntas de una medicion (sugerida por Muse Spark).
  * Sin puntos cuando los terminales no se ven en la foto: queda la nota.
  */
 data class ProbeGuide(val red: ProbePoint?, val black: ProbePoint?, val note: String = "") {
@@ -129,3 +129,7 @@ data class DiagnosisSession(
 ) {
     val currentRequest: MeasurementRequest? get() = pendingRequests.firstOrNull()
 }
+
+/** Sesion de un proyecto nuevo: sin sintoma y con el tipo de placa por detectar. */
+fun newDiagnosisSession(): DiagnosisSession =
+    DiagnosisSession(boardType = BoardType.UNKNOWN, symptom = "")

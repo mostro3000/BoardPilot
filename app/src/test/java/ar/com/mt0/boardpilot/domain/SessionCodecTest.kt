@@ -1,6 +1,6 @@
 package ar.com.mt0.boardpilot.domain
 
-import ar.com.mt0.boardpilot.demo.DemoCaseSmps
+import ar.com.mt0.boardpilot.demo.GoldenCaseSmps
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -9,12 +9,12 @@ import org.junit.Test
 class SessionCodecTest {
 
     @Test
-    fun `la sesion demo en medicion sobrevive encode y decode`() {
-        val engine = DiagnosisEngine(DemoCaseSmps.newSession(AppLanguage.ES))
-        engine.loadMapping(DemoCaseSmps.components(AppLanguage.ES))
+    fun `la sesion del caso dorado en medicion sobrevive encode y decode`() {
+        val engine = DiagnosisEngine(GoldenCaseSmps.newSession(AppLanguage.ES))
+        engine.loadMapping(GoldenCaseSmps.components(AppLanguage.ES))
         engine.loadHypotheses(
-            DemoCaseSmps.hypotheses(AppLanguage.ES),
-            DemoCaseSmps.requests(AppLanguage.ES),
+            GoldenCaseSmps.hypotheses(AppLanguage.ES),
+            GoldenCaseSmps.requests(AppLanguage.ES),
         )
         engine.startMeasuring()
         engine.confirmSafety()
@@ -47,7 +47,7 @@ class SessionCodecTest {
     }
 
     @Test
-    fun `un texto corrupto se rechaza para poder volver al demo`() {
+    fun `un texto corrupto se rechaza para empezar una sesion nueva`() {
         assertThrows(IllegalArgumentException::class.java) {
             SessionCodec.decode("no-es-una-sesion")
         }
@@ -55,8 +55,8 @@ class SessionCodecTest {
 
     @Test
     fun `hipotesis con reemplazo sugerido y sesiones viejas sin ese campo`() {
-        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
-            components = DemoCaseSmps.components(AppLanguage.ES),
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
+            components = GoldenCaseSmps.components(AppLanguage.ES),
             hypotheses = listOf(
                 Hypothesis("h1", "Q3 en corto", "q3", 0.7, "r", fix = "MOSFET N 600 V 4 A (4N60)"),
             ),
@@ -74,10 +74,10 @@ class SessionCodecTest {
 
     @Test
     fun `guia de puntas visible u oculta y sesiones viejas sin puntas`() {
-        val base = DemoCaseSmps.requests(AppLanguage.ES).first()
-        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
-            components = DemoCaseSmps.components(AppLanguage.ES),
-            hypotheses = DemoCaseSmps.hypotheses(AppLanguage.ES),
+        val base = GoldenCaseSmps.requests(AppLanguage.ES).first()
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
+            components = GoldenCaseSmps.components(AppLanguage.ES),
+            hypotheses = GoldenCaseSmps.hypotheses(AppLanguage.ES),
             pendingRequests = listOf(
                 base,
                 base.copy(id = "m_c12", probes = ProbeGuide(null, null, "Patas debajo;\nlado, soldaduras")),
@@ -104,11 +104,11 @@ class SessionCodecTest {
 
     @Test
     fun `zona de cada medicion y sesiones de antes de la zona`() {
-        val base = DemoCaseSmps.requests(AppLanguage.ES).first()
-        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
+        val base = GoldenCaseSmps.requests(AppLanguage.ES).first()
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
             boardType = BoardType.TV_MONITOR,
-            components = DemoCaseSmps.components(AppLanguage.ES),
-            hypotheses = DemoCaseSmps.hypotheses(AppLanguage.ES),
+            components = GoldenCaseSmps.components(AppLanguage.ES),
+            hypotheses = GoldenCaseSmps.hypotheses(AppLanguage.ES),
             pendingRequests = listOf(
                 base.copy(zone = HazardZone.SECONDARY),
                 base.copy(id = "m_hv", kind = MeasurementKind.RESISTANCE, zone = HazardZone.HIGH_VOLTAGE),

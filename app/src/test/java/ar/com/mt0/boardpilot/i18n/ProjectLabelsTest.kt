@@ -1,6 +1,6 @@
 package ar.com.mt0.boardpilot.i18n
 
-import ar.com.mt0.boardpilot.demo.DemoCaseSmps
+import ar.com.mt0.boardpilot.demo.GoldenCaseSmps
 import ar.com.mt0.boardpilot.domain.RepairProject
 import ar.com.mt0.boardpilot.domain.Stage
 import org.junit.Assert.assertEquals
@@ -44,7 +44,7 @@ class ProjectLabelsTest {
     fun `renglon de estado por proyecto`() {
         val base = RepairProject(
             id = "p1", title = "Cargador", createdAtMillis = 0L, updatedAtMillis = 0L,
-            started = true, session = DemoCaseSmps.newSession(AppLanguage.ES)
+            started = true, session = GoldenCaseSmps.newSession(AppLanguage.ES)
                 .copy(stage = Stage.MEASURING),
         )
         assertEquals(

@@ -19,16 +19,6 @@ fun resolveLanguage(mode: LanguageMode, systemLanguageTag: String): AppLanguage 
         if (systemLanguageTag.lowercase().startsWith("es")) AppLanguage.ES else AppLanguage.EN
 }
 
-/**
- * La configuracion inicial se considera completa si ya fue marcada como tal,
- * o (compatibilidad) si ya hay clave guardada y eleccion explicita de idioma.
- */
-fun isSetupComplete(
-    storedCompleted: Boolean,
-    hasApiKey: Boolean,
-    hasLanguageChoice: Boolean,
-): Boolean = storedCompleted || (hasApiKey && hasLanguageChoice)
-
 interface AppStrings {
     val appTagline: String
     val safetyIntro: String
@@ -51,16 +41,11 @@ interface AppStrings {
     val apiMissing: String
     val apiSave: String
     val apiDelete: String
-    val demoTitle: String
-    val demoStart: String
     val stageLabel: String
     val symptomLabel: String
     val hypothesesTitle: String
     val confirmedSuffix: String
-    val mapComponents: String
-    val generateHypotheses: String
     val startMeasuring: String
-    val needMoreEvidence: String
     val nextStepTitle: String
     val nextStepHint: String
     fun firstMeasurement(kind: String, designator: String): String
@@ -71,7 +56,6 @@ interface AppStrings {
     val askFailed: String
     val startOver: String
     val fixLabel: String
-    val restartDemo: String
     val measurementTitle: String
     val normalLabel: String
     val abnormalLabel: String
@@ -87,9 +71,6 @@ interface AppStrings {
     val verifiedOk: String
     val backHome: String
     val settingsTitle: String
-    val firstSetupTitle: String
-    val firstSetupIntro: String
-    val continueWithoutKey: String
     val aboutTitle: String
     val nameLabel: String
     val authorLabel: String
@@ -129,7 +110,6 @@ interface AppStrings {
     val symptomPlaceholder: String
     val diagnoseStart: String
     val symptomTitle: String
-    val demoSymptomNote: String
     val projectsTitle: String
     val newProject: String
     val newProjectTitle: String
@@ -187,7 +167,6 @@ interface AppStrings {
     val redTag: String
     val blackTag: String
     val probesAiNote: String
-    val probesDemoNote: String
     val probesLoading: String
     val probesLocate: String
     val probesHidden: String
@@ -203,6 +182,13 @@ interface AppStrings {
     fun boardTypeName(type: BoardType): String
     val zoneLabel: String
     fun zoneName(zone: HazardZone): String
+
+    // La app necesita la clave y la foto para diagnosticar.
+    val keyIntro: String
+    val needKey: String
+    val loadKey: String
+    val needPhoto: String
+    val needPhotoAndKey: String
 }
 
 fun appStrings(language: AppLanguage): AppStrings = when (language) {
@@ -229,19 +215,14 @@ object EsStrings : AppStrings {
     override val reasoningMax = "Máximo"
     override val apiTitle = "Meta Model API (tu clave, BYOK)"
     override val apiLoaded = "Clave cargada en este dispositivo. Solo sale hacia api.meta.ai."
-    override val apiMissing = "Sin clave: la app funciona en modo demo offline."
+    override val apiMissing = "Sin clave: BoardPilot no puede diagnosticar."
     override val apiSave = "Guardar clave en el dispositivo"
     override val apiDelete = "Borrar clave"
-    override val demoTitle = "Demo offline — Caso 1: fuente SMPS"
-    override val demoStart = "Iniciar diagnóstico demo"
     override val stageLabel = "Etapa"
     override val symptomLabel = "Síntoma"
     override val hypothesesTitle = "Hipótesis"
     override val confirmedSuffix = " (confirmado por medición)"
-    override val mapComponents = "Mapear componentes (demo SAM)"
-    override val generateHypotheses = "Generar hipótesis (demo Muse Spark)"
     override val startMeasuring = "Empezar mediciones guiadas"
-    override val needMoreEvidence = "Sin mediciones pendientes y sin evidencia suficiente: en vivo se pediría una foto macro u otra medición."
     override val nextStepTitle = "Siguiente paso: medir"
     override val nextStepHint = "BoardPilot te guía una medición por vez: dónde poner las puntas, qué tenés que ver en el multímetro y la compuerta de seguridad antes de cada una."
     override fun firstMeasurement(kind: String, designator: String) = "Primera: $kind en $designator"
@@ -252,7 +233,6 @@ object EsStrings : AppStrings {
     override val askFailed = "No se pudieron pedir las mediciones. Revisá la conexión y tu clave, y reintentá."
     override val startOver = "Empezar de nuevo"
     override val fixLabel = "Si se confirma"
-    override val restartDemo = "Reiniciar demo"
     override val measurementTitle = "Medición"
     override val normalLabel = "Normal"
     override val abnormalLabel = "Anormal"
@@ -268,9 +248,6 @@ object EsStrings : AppStrings {
     override val verifiedOk = "✅ Reparación verificada: el equipo volvió a funcionar."
     override val backHome = "Volver al inicio"
     override val settingsTitle = "Configuración"
-    override val firstSetupTitle = "Primera configuración"
-    override val firstSetupIntro = "Elegí el idioma y cargá tu clave de Meta Model API. Después, esto queda en la ruedita de arriba."
-    override val continueWithoutKey = "Continuar sin clave (modo demo)"
     override val aboutTitle = "Acerca de BoardPilot"
     override val nameLabel = "Nombre"
     override val authorLabel = "Autor"
@@ -300,7 +277,7 @@ object EsStrings : AppStrings {
     override val cropApply = "Aplicar recorte"
     override val cropCancel = "Cancelar"
     override val mapFit = "Ver completo"
-    override val photoNone = "Sin foto: se usa el esquema del demo."
+    override val photoNone = "Todavía no hay foto: sacala con la cámara o elegila de la galería."
     override val photoReady = "Foto lista"
     override val mapLiveSam = "Mapear con SAM 3.1 en vivo"
     override val mappingBusy = "Segmentando con SAM 3.1..."
@@ -310,7 +287,6 @@ object EsStrings : AppStrings {
     override val symptomPlaceholder = "Ej.: no enciende, sin LED"
     override val diagnoseStart = "Iniciar diagnóstico"
     override val symptomTitle = "¿Qué le pasa a la placa?"
-    override val demoSymptomNote = "Si lo dejás vacío, se usa el síntoma del caso demo."
     override val projectsTitle = "Mis reparaciones"
     override val newProject = "Nueva reparación"
     override val newProjectTitle = "Nueva reparación"
@@ -409,7 +385,6 @@ object EsStrings : AppStrings {
     override val redTag = "R"
     override val blackTag = "N"
     override val probesAiNote = "Ubicación sugerida por IA: confirmala con la serigrafía."
-    override val probesDemoNote = "Ubicación de ejemplo del caso demo."
     override val probesLoading = "Muse Spark está ubicando las puntas..."
     override val probesLocate = "Ubicar las puntas con Muse Spark"
     override val probesHidden = "Las patas no se ven en esta foto."
@@ -435,6 +410,11 @@ object EsStrings : AppStrings {
         HazardZone.SECONDARY -> "baja tensión (secundario)"
         HazardZone.HIGH_VOLTAGE -> "alta tensión"
     }
+    override val keyIntro = "Para diagnosticar, BoardPilot usa tu propia clave de la Meta Model API (dev.meta.ai). Queda guardada solo en este teléfono."
+    override val needKey = "Falta tu clave de la Meta Model API para diagnosticar."
+    override val loadKey = "Cargar la clave"
+    override val needPhoto = "Agregá la foto de la placa para empezar."
+    override val needPhotoAndKey = "Para mapear hacen falta la foto de la placa y tu clave."
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No queda ninguna medición pendiente."
@@ -462,19 +442,14 @@ object EnStrings : AppStrings {
     override val reasoningMax = "Max"
     override val apiTitle = "Meta Model API (your key, BYOK)"
     override val apiLoaded = "Key stored on this device. It only goes to api.meta.ai."
-    override val apiMissing = "No key: the app runs in offline demo mode."
+    override val apiMissing = "No key: BoardPilot cannot diagnose."
     override val apiSave = "Save key on this device"
     override val apiDelete = "Delete key"
-    override val demoTitle = "Offline demo — Case 1: SMPS power supply"
-    override val demoStart = "Start demo diagnosis"
     override val stageLabel = "Stage"
     override val symptomLabel = "Symptom"
     override val hypothesesTitle = "Hypotheses"
     override val confirmedSuffix = " (confirmed by measurement)"
-    override val mapComponents = "Map components (SAM demo)"
-    override val generateHypotheses = "Generate hypotheses (Muse Spark demo)"
     override val startMeasuring = "Start guided measurements"
-    override val needMoreEvidence = "No measurements left and not enough evidence: live mode would ask for a macro photo or another measurement."
     override val nextStepTitle = "Next step: measure"
     override val nextStepHint = "BoardPilot guides one measurement at a time: where to put the probes, what the meter should show and the safety gate before each one."
     override fun firstMeasurement(kind: String, designator: String) = "First: $kind on $designator"
@@ -485,7 +460,6 @@ object EnStrings : AppStrings {
     override val askFailed = "Could not get measurements. Check your connection and key, then retry."
     override val startOver = "Start over"
     override val fixLabel = "If confirmed"
-    override val restartDemo = "Restart demo"
     override val measurementTitle = "Measurement"
     override val normalLabel = "Normal"
     override val abnormalLabel = "Abnormal"
@@ -501,9 +475,6 @@ object EnStrings : AppStrings {
     override val verifiedOk = "✅ Repair verified: the unit is working again."
     override val backHome = "Back to start"
     override val settingsTitle = "Settings"
-    override val firstSetupTitle = "First-time setup"
-    override val firstSetupIntro = "Pick your language and add your Meta Model API key. Later, all of this lives under the gear icon above."
-    override val continueWithoutKey = "Continue without a key (demo mode)"
     override val aboutTitle = "About BoardPilot"
     override val nameLabel = "Name"
     override val authorLabel = "Author"
@@ -533,7 +504,7 @@ object EnStrings : AppStrings {
     override val cropApply = "Apply crop"
     override val cropCancel = "Cancel"
     override val mapFit = "Fit view"
-    override val photoNone = "No photo: the demo schematic will be used."
+    override val photoNone = "No photo yet: take one with the camera or pick it from the gallery."
     override val photoReady = "Photo ready"
     override val mapLiveSam = "Map with live SAM 3.1"
     override val mappingBusy = "Segmenting with SAM 3.1..."
@@ -543,7 +514,6 @@ object EnStrings : AppStrings {
     override val symptomPlaceholder = "E.g.: completely dead, no LED"
     override val diagnoseStart = "Start diagnosis"
     override val symptomTitle = "What is wrong with the board?"
-    override val demoSymptomNote = "Leave it empty to use the demo case symptom."
     override val projectsTitle = "My repairs"
     override val newProject = "New repair"
     override val newProjectTitle = "New repair"
@@ -642,7 +612,6 @@ object EnStrings : AppStrings {
     override val redTag = "R"
     override val blackTag = "B"
     override val probesAiNote = "AI-suggested location: confirm it with the silkscreen."
-    override val probesDemoNote = "Example location from the demo case."
     override val probesLoading = "Muse Spark is locating the probe points..."
     override val probesLocate = "Locate the probes with Muse Spark"
     override val probesHidden = "The leads are not visible in this photo."
@@ -668,6 +637,11 @@ object EnStrings : AppStrings {
         HazardZone.SECONDARY -> "low voltage (secondary)"
         HazardZone.HIGH_VOLTAGE -> "high voltage"
     }
+    override val keyIntro = "To diagnose, BoardPilot uses your own Meta Model API key (dev.meta.ai). It is stored only on this phone."
+    override val needKey = "Your Meta Model API key is needed to diagnose."
+    override val loadKey = "Add the key"
+    override val needPhoto = "Add a photo of the board to start."
+    override val needPhotoAndKey = "Mapping needs the board photo and your key."
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No measurement is pending."

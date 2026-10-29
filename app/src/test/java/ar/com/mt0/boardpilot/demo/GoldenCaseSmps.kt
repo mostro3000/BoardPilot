@@ -15,12 +15,12 @@ import ar.com.mt0.boardpilot.domain.SafetyGate
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 
 /**
- * Caso dorado N.1 (offline, ES/EN): fuente conmutada (SMPS) que no enciende.
- * Falla conocida: MOSFET Q3 en corto. Veredicto esperado: "q3".
- * En Fase 2, SAM 3.1 + Muse Spark generan estos datos en vivo; el playbook
- * queda como esqueleto verificable del flujo.
+ * Caso dorado de prueba (ES/EN): fuente conmutada (SMPS) que no enciende, con
+ * falla conocida MOSFET Q3 en corto (veredicto esperado "q3"). Fue el modo demo
+ * offline de la app hasta el 28 oct; hoy valida en los tests la maquina de
+ * estados de punta a punta con datos realistas.
  */
-object DemoCaseSmps {
+object GoldenCaseSmps {
     const val EXPECTED_VERDICT_COMPONENT = "q3"
 
     fun components(language: AppLanguage): List<BoardComponent> {
@@ -101,7 +101,7 @@ object DemoCaseSmps {
         )
     }
 
-    // Puntas fijas del caso demo (en vivo las sugiere Muse Spark): una en cada
+    // Puntas fijas del caso dorado (en la app las sugiere Muse Spark): una en cada
     // extremo de F1; en Q3, roja en el drenaje y negra en el negativo de C12.
     private fun fuseProbes(red: String, black: String) = ProbeGuide(
         ProbePoint("f1", 0.05f, 0.11f, red),

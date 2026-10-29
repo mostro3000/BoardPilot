@@ -84,9 +84,10 @@ construcción (antes solo hubo planificación y documentación); las fechas de l
 son la evidencia.
 
 - **27 oct** — smoke tests de la Meta Model API; fundación Android (API 37, Jetpack
-  Compose) con la máquina de estados del diagnóstico, las compuertas de seguridad y el
-  caso demo offline; interfaz en español e inglés; configuración con la clave propia del
-  usuario; protocolo de SAM 3.1 y primer mapeo en vivo.
+  Compose) con la máquina de estados del diagnóstico, las compuertas de seguridad y un
+  caso dorado de fuente conmutada (primero demo offline, hoy test de unidad); interfaz en
+  español e inglés; configuración con la clave propia del usuario; protocolo de SAM 3.1 y
+  primer mapeo en vivo.
 - **28 oct** — estrategia de SAM por descriptores de forma validada sobre una fuente
   conmutada real; persistencia de sesión y permisos de cámara; diagnóstico en vivo con
   Muse Spark anclado a los candidatos de SAM; pre-escaneo de daño visible; esfuerzo de
@@ -94,27 +95,30 @@ son la evidencia.
   "Mis reparaciones"; recorte y giro libres y zoom con dos dedos; replanificación de
   mediciones con reemplazos concretos; foto completa de cámara con orientación EXIF;
   guía visual de mediciones (lupa, multímetro, mapa de evidencia y puntas sugeridas por
-  IA).
+  IA); tipos de placa con playbooks versionados y zona de riesgo por medición; se quitó el
+  demo offline (BoardPilot siempre diagnostica en vivo, con la clave propia del usuario).
 
 El diario día por día, con mediciones, decisiones y resultados de las pruebas en vivo,
 está en [`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md).
 
 ## Probarla
 
-**Requisitos:** un teléfono con Android 8.0 o superior (API 26+). Internet solo hace falta
-para el modo en vivo.
+**Requisitos:** un teléfono con Android 8.0 o superior (API 26+), conexión a internet y
+una clave propia de la Meta Model API (dev.meta.ai). BoardPilot siempre diagnostica en
+vivo: no tiene modo sin conexión.
 
 **Instalar:** descargar el APK desde la página de Releases de este repositorio cuando esté
 disponible, o compilarlo (abajo) e instalarlo con `adb install -r app-debug.apk`.
 
-**Modo demo (sin clave):** en el primer inicio elegir *Continuar sin clave (modo demo)*.
-Después *Nueva reparación* → *Iniciar diagnóstico demo* recorre todo el flujo sin red con
-el caso dorado "fuente conmutada que no enciende": mapa de componentes, hipótesis,
-mediciones guiadas con sus compuertas de seguridad, veredicto, reparación y verificación.
+**Primer inicio:** sin clave cargada, la app abre en Configuración con el campo de la
+clave primero. Pegar la clave de la Meta Model API: queda guardada solo en el
+almacenamiento privado de la app en ese teléfono (se puede borrar desde Configuración,
+ruedita).
 
-**Modo en vivo (clave propia):** abrir Configuración (ruedita) y pegar la clave de la Meta
-Model API. Después *Nueva reparación* → foto → síntoma → *Iniciar diagnóstico* → *Mapear
-con SAM 3.1 en vivo* → *Generar hipótesis (Muse Spark en vivo)* → seguir las mediciones.
+**Diagnosticar:** *Nueva reparación* → foto → síntoma (y tipo de placa, o que lo detecte
+Muse Spark) → *Iniciar diagnóstico* → *Mapear con SAM 3.1 en vivo* → *Generar hipótesis
+(Muse Spark en vivo)* → seguir las mediciones, una por turno, cada una con su compuerta
+de seguridad.
 
 ## Compilar
 
@@ -145,7 +149,7 @@ App Android (APK) — todo el estado en el dispositivo           Meta Model API 
 Cámara/galería · recorte y giro · overlay de componentes  ── HTTPS ──►  SAM 3.1
 Máquina de estados del diagnóstico + compuertas de seguridad             Muse Spark 1.3
 Validación de respuestas (JSON estricto, ids anclados)                   Muse Image 1.0
-Proyectos "Mis reparaciones" guardados localmente · demo offline
+Proyectos "Mis reparaciones" guardados localmente
 ```
 
 - `app/src/main/java/ar/com/mt0/boardpilot/domain/` — lógica pura con tests:
