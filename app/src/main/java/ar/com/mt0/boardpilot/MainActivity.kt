@@ -1839,8 +1839,11 @@ private fun SessionContent(
             }
         }
         selected?.let { comp ->
-            Text("${comp.designator} · ${comp.kind}" +
-                (comp.visibleDamage?.let { " · ⚠ $it" } ?: ""))
+            Text(listOfNotNull(
+                comp.designator,
+                strings.componentKindName(comp.kind),
+                comp.visibleDamage?.let { "⚠ $it" },
+            ).joinToString(" · "))
         }
     }
     message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -1983,7 +1986,9 @@ private fun SessionContent(
 
         Stage.VERDICT -> {
             val comp = session.components.firstOrNull { it.id == session.verdictComponentId }
-            Text("${strings.verdictPrefix} ${comp?.designator ?: "?"} (${comp?.kind ?: ""})",
+            // "Reemplazar Q3 (MOSFET)"; sin tipo conocido, solo la pieza.
+            val kindName = comp?.let { strings.componentKindName(it.kind) }
+            Text("${strings.verdictPrefix} ${comp?.designator ?: "?"}" + (kindName?.let { " ($it)" } ?: ""),
                 fontWeight = FontWeight.Bold, fontSize = 18.sp)
             // Lo que Muse Spark dijo reemplazar para la hipotesis confirmada.
             val replacementText = session.hypotheses

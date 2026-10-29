@@ -1,5 +1,6 @@
 package ar.com.mt0.boardpilot.i18n
 
+import ar.com.mt0.boardpilot.domain.ComponentKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -32,5 +33,17 @@ class LanguageResolutionTest {
         assertNotEquals(es.appTagline, en.appTagline)
         assertNotEquals(es.needKey, en.needKey)
         assertNotEquals(es.verifiedOk, en.verifiedOk)
+    }
+
+    @Test
+    fun `cada tipo de componente tiene nombre en ambos idiomas salvo OTHER`() {
+        for (strings in listOf(appStrings(AppLanguage.ES), appStrings(AppLanguage.EN))) {
+            assertEquals(null, strings.componentKindName(ComponentKind.OTHER))
+            val nombres = ComponentKind.entries.filter { it != ComponentKind.OTHER }
+                .map { strings.componentKindName(it) }
+            assertEquals(nombres.size, nombres.filterNotNull().toSet().size)
+        }
+        assertEquals("fusible", appStrings(AppLanguage.ES).componentKindName(ComponentKind.FUSE))
+        assertEquals("fuse", appStrings(AppLanguage.EN).componentKindName(ComponentKind.FUSE))
     }
 }

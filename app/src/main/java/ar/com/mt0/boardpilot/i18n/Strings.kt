@@ -1,6 +1,7 @@
 package ar.com.mt0.boardpilot.i18n
 
 import ar.com.mt0.boardpilot.domain.BoardType
+import ar.com.mt0.boardpilot.domain.ComponentKind
 import ar.com.mt0.boardpilot.domain.HazardZone
 import ar.com.mt0.boardpilot.domain.MeasurementKind
 import ar.com.mt0.boardpilot.domain.RejectReason
@@ -160,6 +161,8 @@ interface AppStrings {
     fun gateWarning(gate: SafetyGate, zone: HazardZone): String
     fun stageName(stage: Stage): String
     fun kindName(kind: MeasurementKind): String
+    /** Nombre del tipo de componente; null en OTHER (no dice nada y no se muestra). */
+    fun componentKindName(kind: ComponentKind): String?
     fun rejectMessage(reason: RejectReason): String
 
     // Guia visual de mediciones (lupa, multimetro, puntas, mapa de evidencia).
@@ -376,6 +379,19 @@ object EsStrings : AppStrings {
         MeasurementKind.RESISTANCE -> "resistencia"
         MeasurementKind.VOLTAGE_DC -> "tensión DC"
         MeasurementKind.DIODE -> "diodo"
+    }
+
+    override fun componentKindName(kind: ComponentKind): String? = when (kind) {
+        ComponentKind.CAPACITOR -> "capacitor"
+        ComponentKind.MOSFET -> "MOSFET"
+        ComponentKind.IC -> "integrado"
+        ComponentKind.FUSE -> "fusible"
+        ComponentKind.TRANSFORMER -> "transformador"
+        ComponentKind.OPTOCOUPLER -> "optoacoplador"
+        ComponentKind.DIODE -> "diodo"
+        ComponentKind.RESISTOR -> "resistencia"
+        ComponentKind.CONNECTOR -> "conector"
+        ComponentKind.OTHER -> null
     }
 
     override fun measurementOf(n: Int, total: Int) = "Medición $n de $total"
@@ -605,6 +621,19 @@ object EnStrings : AppStrings {
         MeasurementKind.RESISTANCE -> "resistance"
         MeasurementKind.VOLTAGE_DC -> "DC voltage"
         MeasurementKind.DIODE -> "diode"
+    }
+
+    override fun componentKindName(kind: ComponentKind): String? = when (kind) {
+        ComponentKind.CAPACITOR -> "capacitor"
+        ComponentKind.MOSFET -> "MOSFET"
+        ComponentKind.IC -> "IC"
+        ComponentKind.FUSE -> "fuse"
+        ComponentKind.TRANSFORMER -> "transformer"
+        ComponentKind.OPTOCOUPLER -> "optocoupler"
+        ComponentKind.DIODE -> "diode"
+        ComponentKind.RESISTOR -> "resistor"
+        ComponentKind.CONNECTOR -> "connector"
+        ComponentKind.OTHER -> null
     }
 
     override fun measurementOf(n: Int, total: Int) = "Measurement $n of $total"
