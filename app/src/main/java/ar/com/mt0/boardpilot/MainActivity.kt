@@ -18,6 +18,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -58,6 +63,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -131,6 +137,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -1800,7 +1807,7 @@ private fun SessionContent(
                 onClick = onMapRequest,
                 enabled = !mappingBusy && canLiveMap,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (mappingBusy) strings.mappingBusy else strings.mapLiveSam) }
+            ) { if (mappingBusy) BusyLabel(strings.mappingBusy) else Text(strings.mapLiveSam) }
         }
 
         Stage.MAPPING -> {
@@ -1810,7 +1817,7 @@ private fun SessionContent(
                 enabled = !sparkBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (sparkBusy) strings.sparkBusy else strings.sparkGenerate)
+                if (sparkBusy) BusyLabel(strings.sparkBusy) else Text(strings.sparkGenerate)
             }
             OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
                 Text(strings.startOver)
@@ -1855,7 +1862,10 @@ private fun SessionContent(
                             onClick = onAskMeasurements,
                             enabled = !planBusy,
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (planBusy) strings.askingMeasurements else strings.askMeasurements) }
+                        ) {
+                            if (planBusy) BusyLabel(strings.askingMeasurements)
+                            else Text(strings.askMeasurements)
+                        }
                         OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
                             Text(strings.startOver)
                         }
@@ -2020,7 +2030,7 @@ private fun ReferenceCard(
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (busy) strings.referenceBusy else strings.referenceGenerate)
+                if (busy) BusyLabel(strings.referenceBusy) else Text(strings.referenceGenerate)
             }
         }
     }
@@ -2391,6 +2401,32 @@ private fun ProbeLegend(color: Color, tag: String, terminal: String) {
 }
 
 /**
+ * Texto de un pedido a la IA en curso con un circulo que gira y pasa del color
+ * principal al ambar y vuelta: que se vea que la app esta trabajando.
+ */
+@Composable
+private fun BusyLabel(
+    text: String,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+) {
+    val colors = MaterialTheme.colorScheme
+    val spinnerColor by rememberInfiniteTransition(label = "busy").animateColor(
+        initialValue = colors.primary,
+        targetValue = colors.secondary,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 900), RepeatMode.Reverse),
+        label = "busyColor",
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        CircularProgressIndicator(Modifier.size(18.dp), color = spinnerColor, strokeWidth = 2.5.dp)
+        Text(text, color = color, fontSize = fontSize)
+    }
+}
+
+/**
  * Debajo de la lupa: que las puntas son sugerencia de IA, si se estan pidiendo,
  * si las patas no se ven, y en diodos sin polaridad visible, que se pruebe en los
  * dos sentidos.
@@ -2407,7 +2443,7 @@ private fun ProbeCaption(
     guide?.red?.let { ProbeLegend(Color(0xFFE53935), strings.redTag, it.terminal) }
     guide?.black?.let { ProbeLegend(Color(0xFF111111), strings.blackTag, it.terminal) }
     when {
-        guide == null && busy -> Text(strings.probesLoading, color = muted, fontSize = 14.sp)
+        guide == null && busy -> BusyLabel(strings.probesLoading, color = muted, fontSize = 14.sp)
         guide == null -> TextButton(onClick = onLocate) { Text(strings.probesLocate) }
         guide.points.isEmpty() ->
             Text("⚠ ${strings.probesHidden} ${guide.note}".trim(), fontSize = 14.sp)
