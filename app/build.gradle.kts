@@ -1,4 +1,7 @@
 import com.android.build.api.artifact.SingleArtifact
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 plugins {
     id("com.android.application")
@@ -10,6 +13,47 @@ plugins {
 // de Gradle (~/.gradle/gradle.properties, -P o variables ORG_GRADLE_PROJECT_...); aca solo
 // estan los nombres. Sin ellas el release sale sin firmar y signedRelease no publica nada.
 val releaseStoreFile: String? = providers.gradleProperty("boardpilotStoreFile").orNull
+// El AAB puede ir con otra clave, la de subida a Google Play: propiedades boardpilotBundle*
+// (StoreFile, StorePassword, KeyAlias, KeyPassword), tambien fuera del repo. Sin ellas, el AAB
+// va firmado con la misma clave que el APK.
+val bundleStoreFile: String? = providers.gradleProperty("boardpilotBundleStoreFile").orNull
+
+/**
+ * Cambia la firma del AAB: le saca la del release y lo firma con jarsigner (el del JDK que
+ * corre Gradle) con la clave de subida. Las contraseñas van por entorno, no en la linea de comandos.
+ */
+fun resignBundle(aab: File, store: File, storePassword: String, alias: String, keyPassword: String) {
+    val unsigned = File(aab.parentFile, "${aab.name}.sin-firma")
+    ZipFile(aab).use { zip ->
+        ZipOutputStream(unsigned.outputStream()).use { out ->
+            for (entry in zip.entries().asSequence()) {
+                val name = entry.name.uppercase()
+                val signature = name.startsWith("META-INF/") &&
+                    (name == "META-INF/MANIFEST.MF" || name.substringAfterLast('.') in setOf("SF", "RSA", "DSA", "EC"))
+                if (signature) continue
+                out.putNextEntry(ZipEntry(entry.name))
+                zip.getInputStream(entry).use { it.copyTo(out) }
+                out.closeEntry()
+            }
+        }
+    }
+    val jarsigner = File(System.getProperty("java.home"), "bin/jarsigner").path
+    val command = ProcessBuilder(
+        jarsigner, "-keystore", store.path, "-storepass:env", "BOARDPILOT_STORE_PASSWORD",
+        "-keypass:env", "BOARDPILOT_KEY_PASSWORD", unsigned.path, alias,
+    ).redirectErrorStream(true)
+    command.environment()["BOARDPILOT_STORE_PASSWORD"] = storePassword
+    command.environment()["BOARDPILOT_KEY_PASSWORD"] = keyPassword
+    val process = command.start()
+    val output = process.inputStream.bufferedReader().readText()
+    if (process.waitFor() != 0) {
+        unsigned.delete()
+        throw GradleException("jarsigner no pudo firmar el AAB: $output")
+    }
+    unsigned.copyTo(aab, overwrite = true)
+    unsigned.delete()
+}
+
 // Pedir signedRelease sin firma falla al arrancar, no despues de compilar todo el release.
 if (releaseStoreFile == null && gradle.startParameter.taskNames.any { it.substringAfterLast(':') == "signedRelease" }) {
     throw GradleException(
@@ -74,6 +118,18 @@ androidComponents {
                 rename { "${published.get()}.aab" }
             }
             into(rootProject.layout.projectDirectory.dir("release"))
+            if (bundleStoreFile != null) {
+                val store = file(bundleStoreFile)
+                val storePassword = providers.gradleProperty("boardpilotBundleStorePassword")
+                val alias = providers.gradleProperty("boardpilotBundleKeyAlias")
+                val keyPassword = providers.gradleProperty("boardpilotBundleKeyPassword").orElse(storePassword)
+                doLast {
+                    resignBundle(
+                        destinationDir.resolve("${published.get()}.aab"), store,
+                        storePassword.get(), alias.get(), keyPassword.get(),
+                    )
+                }
+            }
         }
     }
 }

@@ -132,7 +132,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 tu clave y los copia a `release/` como `ar.com.mt0.boardpilot-<versión>.apk` y `.aab`. La
 clave nunca va al repositorio: se pasan `boardpilotStoreFile`, `boardpilotStorePassword`,
 `boardpilotKeyAlias` y `boardpilotKeyPassword` como propiedades de Gradle (por ejemplo en
-`~/.gradle/gradle.properties`); sin ellas, la tarea se detiene antes de compilar.
+`~/.gradle/gradle.properties`); sin ellas, la tarea se detiene antes de compilar. Para
+firmar el AAB con otra clave de subida, como pide Google Play, se suman
+`boardpilotBundleStoreFile`, `boardpilotBundleStorePassword`, `boardpilotBundleKeyAlias` y
+`boardpilotBundleKeyPassword`.
 
 Smoke tests contra la Meta Model API (leen la clave solo del entorno y nunca la imprimen):
 

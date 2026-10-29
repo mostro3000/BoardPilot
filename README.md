@@ -132,7 +132,9 @@ your own key and copies them to `release/` as `ar.com.mt0.boardpilot-<version>.a
 `.aab`. The key never goes into the repository: pass `boardpilotStoreFile`,
 `boardpilotStorePassword`, `boardpilotKeyAlias` and `boardpilotKeyPassword` as Gradle
 properties (for example in `~/.gradle/gradle.properties`); without them the task stops
-before building.
+before building. To sign the AAB with a separate upload key, as Google Play expects, also
+pass `boardpilotBundleStoreFile`, `boardpilotBundleStorePassword`,
+`boardpilotBundleKeyAlias` and `boardpilotBundleKeyPassword`.
 
 Smoke tests against the Meta Model API (they read the key from the environment only and
 never print it):
