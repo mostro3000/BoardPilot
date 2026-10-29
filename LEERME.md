@@ -94,7 +94,13 @@ son la evidencia.
   mediciones con reemplazos concretos; foto completa de cámara con orientación EXIF;
   guía visual de mediciones (lupa, multímetro, mapa de evidencia y puntas sugeridas por
   IA); tipos de placa con playbooks versionados y zona de riesgo por medición; se quitó el
-  demo offline (BoardPilot siempre diagnostica en vivo, con la clave propia del usuario).
+  demo offline (BoardPilot siempre diagnostica en vivo, con la clave propia del usuario; sin
+  clave abre en Configuración para cargarla); un círculo que gira mientras trabaja la IA;
+  avisos con el color de error del tema.
+- **29 oct** — ojito para ver u ocultar la clave en su campo (oculta por defecto); APK y
+  AAB de release firmados en `release/` (`./gradlew signedRelease`, con las claves de firma
+  fuera del repositorio); el veredicto y el mapa nombran el tipo de componente en el idioma
+  de la app.
 
 ## Probarla
 
@@ -143,7 +149,7 @@ Smoke tests contra la Meta Model API (leen la clave solo del entorno y nunca la 
 MODEL_API_KEY=... python3 tools/smoke_api.py
 MODEL_API_KEY=... python3 tools/smoke_sam.py IMAGEN "electrolytic capacitor"
 MODEL_API_KEY=... python3 tools/smoke_map.py FOTO SALIDA   # mismo mapeo SAM que la app → candidatos.json
-MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGEN CANDIDATOS.json "síntoma" [ES|EN] [--plan]
+MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGEN CANDIDATOS.json "síntoma" [ES|EN] [--plan] [--probes]
 MODEL_API_KEY=... python3 tools/smoke_image.py IMAGEN "descripción del daño"
 ```
 
@@ -160,7 +166,8 @@ Proyectos "Mis reparaciones" guardados localmente
 - `app/src/main/java/ar/com/mt0/boardpilot/domain/` — lógica pura con tests:
   `DiagnosisEngine` (máquina de estados), `SparkOutputParser` / `SamOutputParser`
   (validación de respuestas), `SessionCodec` / `RepairProject` (persistencia),
-  `PhotoGestures` / `PhotoLoading` (recorte, giro, EXIF, muestreo).
+  `BoardPlaybooks` (tipos de placa y sus playbooks), `BoardView` (geometría del mapa y la
+  lupa), `PhotoGestures` / `PhotoLoading` (recorte, giro, EXIF, muestreo).
 - `app/src/main/java/ar/com/mt0/boardpilot/api/` — `MetaSamClient`, `MetaSparkClient`,
   `MetaImageClient` (HTTPS directo, sin SDK; los errores pasajeros 429/5xx y de red se
   reintentan con espera creciente, `MetaApiRetry`).

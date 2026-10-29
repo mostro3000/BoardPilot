@@ -95,7 +95,12 @@ documentation only before it); commit dates are the evidence.
   orientation; visual measurement guide (lens, meter setup, evidence map and
   AI-suggested probe points); board types with versioned playbooks and per-measurement
   hazard zones; offline demo removed (BoardPilot always diagnoses live, with the user's
-  own key).
+  own key; with no key it opens on Settings to load one); a spinning indicator while the
+  AI works; warnings in the theme's error color.
+- **Oct 29** — show/hide toggle on the API key field (hidden by default); signed release
+  APK and AAB in `release/` (`./gradlew signedRelease`, with the signing keys kept out of
+  the repository); the verdict and the board map name the component type in the app's
+  language.
 
 ## Try it
 
@@ -143,7 +148,7 @@ never print it):
 MODEL_API_KEY=... python3 tools/smoke_api.py
 MODEL_API_KEY=... python3 tools/smoke_sam.py IMAGE "electrolytic capacitor"
 MODEL_API_KEY=... python3 tools/smoke_map.py PHOTO OUT_DIR   # same SAM mapping as the app → candidatos.json
-MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGE CANDIDATES.json "symptom" [ES|EN] [--plan]
+MODEL_API_KEY=... python3 tools/smoke_spark.py IMAGE CANDIDATES.json "symptom" [ES|EN] [--plan] [--probes]
 MODEL_API_KEY=... python3 tools/smoke_image.py IMAGE "damage description"
 ```
 
@@ -159,7 +164,8 @@ Model-output validation (strict JSON, grounded ids)                 Muse Image 1
 
 - `app/src/main/java/ar/com/mt0/boardpilot/domain/` — pure, unit-tested logic:
   `DiagnosisEngine` (state machine), `SparkOutputParser` / `SamOutputParser` (output
-  validation), `SessionCodec` / `RepairProject` (persistence), `PhotoGestures` /
+  validation), `SessionCodec` / `RepairProject` (persistence), `BoardPlaybooks` (board
+  types and their playbooks), `BoardView` (map and lens geometry), `PhotoGestures` /
   `PhotoLoading` (crop, rotation, EXIF, sampling).
 - `app/src/main/java/ar/com/mt0/boardpilot/api/` — `MetaSamClient`, `MetaSparkClient`,
   `MetaImageClient` (plain HTTPS, no SDK; transient 429/5xx and network errors are
