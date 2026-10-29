@@ -50,7 +50,7 @@ object SessionCodec {
                     enc(request.id), enc(request.componentId), request.kind.name,
                     enc(request.instruction), enc(request.normalDescription),
                     enc(request.abnormalDescription), request.gate.name,
-                    enc(request.targetHypothesisId), encProbes(request.probes),
+                    enc(request.targetHypothesisId), encProbes(request.probes), request.zone.name,
                 ).joinToString("|"),
             )
         }
@@ -103,8 +103,8 @@ object SessionCodec {
             )
         }
         val requests = List(cursor.nextCount()) {
-            // Las sesiones guardadas antes de la guia de puntas traen 8 campos.
-            val fields = cursor.nextFields(8, 9)
+            // Antes de la guia de puntas: 8 campos; antes de la zona de riesgo: 9.
+            val fields = cursor.nextFields(8, 9, 10)
             MeasurementRequest(
                 id = dec(fields[0]),
                 componentId = dec(fields[1]),
@@ -115,6 +115,8 @@ object SessionCodec {
                 gate = SafetyGate.valueOf(fields[6]),
                 targetHypothesisId = dec(fields[7]),
                 probes = fields.getOrNull(8)?.let(::decProbes),
+                // Sin zona guardada, la mas estricta.
+                zone = fields.getOrNull(9)?.let(HazardZone::valueOf) ?: HazardZone.PRIMARY,
             )
         }
         val results = List(cursor.nextCount()) {

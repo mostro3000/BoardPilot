@@ -73,6 +73,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -137,6 +139,9 @@ import ar.com.mt0.boardpilot.api.MetaSamClient
 import ar.com.mt0.boardpilot.api.MetaSparkClient
 import ar.com.mt0.boardpilot.demo.DemoCaseSmps
 import ar.com.mt0.boardpilot.domain.BoardComponent
+import ar.com.mt0.boardpilot.domain.BoardPlaybooks
+import ar.com.mt0.boardpilot.domain.BoardType
+import ar.com.mt0.boardpilot.domain.HazardZone
 import ar.com.mt0.boardpilot.domain.BoardView
 import ar.com.mt0.boardpilot.domain.FitRect
 import ar.com.mt0.boardpilot.domain.CameraAction
@@ -409,6 +414,7 @@ fun BoardPilotApp(
     val probeBusy = remember { mutableStateListOf<String>() }
     val referenceBusy = remember { mutableStateListOf<String>() }
     var symptomDraft by rememberSaveable { mutableStateOf("") }
+    var boardTypeDraft by rememberSaveable { mutableStateOf(BoardType.UNKNOWN) }
     var mappingError by remember { mutableStateOf<String?>(null) }
     var referenceError by remember { mutableStateOf<String?>(null) }
     // Aviso de la tarjeta de foto (permiso de camara denegado, etc.).
@@ -449,6 +455,7 @@ fun BoardPilotApp(
         boardBitmap = null
         referenceBitmap = null
         symptomDraft = ""
+        boardTypeDraft = BoardType.UNKNOWN
         mappingError = null
         referenceError = null
         photoNotice = null
@@ -517,9 +524,10 @@ fun BoardPilotApp(
         }
     }
 
-    fun startDiagnosis(project: RepairProject) {
+    fun startDiagnosis(project: RepairProject, boardType: BoardType) {
         val engine = engineFor(project)
         engine.updateSymptom(symptomDraft)
+        engine.updateBoardType(boardType)
         updateProject(project.id) {
             it.withProgress(engine.session, true, it.liveMapping, System.currentTimeMillis())
                 .withAutoTitle(defaultTitles)
@@ -714,7 +722,9 @@ fun BoardPilotApp(
     /** Pide a Muse Spark las siguientes mediciones sobre las hipotesis del motor. */
     suspend fun planFor(client: MetaSparkClient, bmp: Bitmap, engine: DiagnosisEngine): SparkPlan {
         val s = engine.session
-        val text = client.planMeasurements(bmp, s.components, s.symptom, s.hypotheses, s.results, language)
+        val text = client.planMeasurements(
+            bmp, s.components, s.symptom, s.hypotheses, s.results, language, s.boardType,
+        )
         return SparkOutputParser.parsePlan(
             text, s.components, s.hypotheses,
             takenIds = (s.pendingRequests.map { it.id } + s.results.map { it.requestId }).toSet(),
@@ -788,8 +798,12 @@ fun BoardPilotApp(
                 // 2) Diagnostico con los candidatos ya aumentados/marcados.
                 val componentsNow = engine.session.components
                 val content = client.diagnose(
-                    bmp, componentsNow, symptomAtStart, language, findings)
+                    bmp, componentsNow, symptomAtStart, language, findings, engine.session.boardType)
                 val diagnosis = SparkOutputParser.parse(content, componentsNow)
+                // Sin tipo elegido, queda el que identifico Muse Spark.
+                if (engine.session.boardType == BoardType.UNKNOWN) {
+                    diagnosis.boardType?.let(engine::updateBoardType)
+                }
                 if (diagnosis.hypotheses.isEmpty()) {
                     if (openProjectId == id) {
                         mappingError = diagnosis.needMoreEvidence ?: strings.sparkNoData
@@ -805,7 +819,7 @@ fun BoardPilotApp(
                     }
                     engine.loadHypotheses(diagnosis.hypotheses, diagnosis.requests)
                     refresh(id)
-                    sparkNotes.remove(id)
+                    diagnosis.needMoreEvidence?.let { sparkNotes[id] = it } ?: sparkNotes.remove(id)
                     // Hipotesis sin mediciones utilizables: se piden aparte, sobre
                     // estas hipotesis, para que el tecnico siempre sepa que medir.
                     if (diagnosis.requests.isEmpty()) {
@@ -1113,9 +1127,13 @@ fun BoardPilotApp(
                         if (!live) {
                             Text(strings.demoSymptomNote, fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            BoardTypePicker(strings, boardTypeDraft) { boardTypeDraft = it }
                         }
                         Button(
-                            onClick = { startDiagnosis(project) },
+                            onClick = {
+                                startDiagnosis(project, if (live) boardTypeDraft else BoardType.SMPS)
+                            },
                             enabled = !live || symptomDraft.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -1760,6 +1778,9 @@ private fun SessionContent(
     Text("${strings.stageLabel}: ${strings.stageName(session.stage)}",
         fontWeight = FontWeight.Bold)
     Text("${strings.symptomLabel}: ${session.symptom}")
+    if (liveMapping || session.boardType != BoardType.UNKNOWN) {
+        Text("${strings.boardTypeLabel}: ${strings.boardTypeName(session.boardType)}")
+    }
     mappingError?.let { Text(it, color = Color(0xFFB00020)) }
     if (session.components.isNotEmpty()) {
         // En el mapa: que medir ahora (o el veredicto), lo ya medido y el % de cada hipotesis.
@@ -1850,6 +1871,9 @@ private fun SessionContent(
                 next != null -> Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(strings.nextStepTitle, fontWeight = FontWeight.Bold)
+                        note?.takeIf { it.isNotBlank() }?.let {
+                            Text("Muse Spark: $it", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Text(strings.nextStepHint)
                         Text(
                             strings.firstMeasurement(strings.kindName(next.kind),
@@ -1918,7 +1942,8 @@ private fun SessionContent(
                         if (req.abnormalDescription.isNotBlank()) {
                             Text("${strings.abnormalDescLabel}: ${req.abnormalDescription}")
                         }
-                        Text("⚠ ${strings.gateWarning(req.gate)}",
+                        ZoneChip(strings, req.zone)
+                        Text("⚠ ${strings.gateWarning(req.gate, req.zone)}",
                             fontWeight = FontWeight.Bold)
                         if (!session.safetyConfirmedForCurrent) {
                             Button(onClick = { engine.confirmSafety(); refresh() }) {
@@ -2211,6 +2236,48 @@ private fun BoardMap(
 private fun Modifier.placedAbove(): Modifier = layout { measurable, constraints ->
     val placeable = measurable.measure(constraints)
     layout(placeable.width, placeable.height) { placeable.place(0, -placeable.height) }
+}
+
+/** Tipo de placa al ingreso: detectar con Muse Spark (por defecto) o elegirlo. */
+@Composable
+private fun BoardTypePicker(strings: AppStrings, value: BoardType, onChange: (BoardType) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box {
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("${strings.boardTypeLabel}: ${strings.boardTypeName(value)} ▾")
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                (listOf(BoardType.UNKNOWN) + BoardPlaybooks.detectable).forEach { type ->
+                    DropdownMenuItem(
+                        text = { Text(strings.boardTypeName(type)) },
+                        onClick = { onChange(type); open = false },
+                    )
+                }
+            }
+        }
+        if (value == BoardType.UNKNOWN) {
+            Text(strings.boardTypeHint, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Donde se mide, con el color del riesgo: rojo en el lado de red, negro y ambar en alta tension. */
+@Composable
+private fun ZoneChip(strings: AppStrings, zone: HazardZone) {
+    val (background, color) = when (zone) {
+        HazardZone.PRIMARY -> Color(0xFFB00020) to Color.White
+        HazardZone.SECONDARY -> Color(0xFF2E7D32) to Color.White
+        HazardZone.HIGH_VOLTAGE -> Color.Black to Color(0xFFFFB300)
+    }
+    Text(
+        "${strings.zoneLabel}: ${strings.zoneName(zone)}",
+        color = color,
+        fontWeight = FontWeight.Bold,
+        fontSize = 14.sp,
+        modifier = Modifier.background(background, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }
 
 /** Etiqueta chica sobre el mapa (% de hipotesis, "medir", "veredicto"). */

@@ -39,7 +39,12 @@ medición o foto en vez de inventar.
 4. **Hipótesis (Muse Spark)** — la foto anotada, la lista de candidatos (JSON con ids
    estables y cajas normalizadas) y el síntoma producen hasta cuatro hipótesis ordenadas,
    cada una con su confianza, su fundamento y qué reemplazar si se confirma (tipo de
-   pieza, valores, encapsulado y un número de parte de ejemplo).
+   pieza, valores, encapsulado y un número de parte de ejemplo). Muse Spark primero
+   identifica el **tipo de placa** (fuente, placa de TV/monitor, inverter de motor,
+   placa de control de electrodoméstico, amplificador de audio, otra), o usa el que
+   eligió el técnico, y aplica las fallas típicas y la estrategia de medición de ese tipo
+   (guías versionadas en `app/src/main/resources/playbooks.json`). Las fallas que no se
+   arreglan con tester (firmware, BGA, el panel) vuelven como consejo, no como hipótesis.
 5. **Mediciones guiadas** — una por vez: continuidad, resistencia, diodo o tensión DC, con
    qué lectura es normal o anormal. Cada medición pasa por una **compuerta de seguridad
    que fija el código, nunca el modelo**, y cada resultado actualiza las hipótesis de
@@ -170,9 +175,12 @@ dispositivo. La clave nunca se embebe en el APK ni en este repositorio.
 
 ## Limitaciones
 
-- Pensada para placas con componentes visibles, de inserción o SMD grandes: fuentes
-  conmutadas, placas de TV/monitor e inverter de electrodomésticos. Celulares y
-  micro-soldadura (0402, BGA, microscopio) quedan fuera.
+- Pensada para placas de equipos de red con componentes visibles, de inserción o SMD
+  grandes: fuentes conmutadas, placas de TV/monitor, inverters de motor y compresor,
+  placas de control de electrodomésticos, amplificadores de audio y similares. Cada
+  medición lleva su zona de riesgo (lado de red, baja tensión, alta tensión) y nunca se
+  guían mediciones con tensión en alta tensión. Celulares, micro-soldadura (0402, BGA,
+  microscopio) y placas lógicas densas quedan fuera.
 - SAM necesita una foto razonablemente nítida y bien iluminada, tomada de frente.
 - Sin esquemáticos ni boardviews: el diagnóstico trabaja con lo visible, las topologías
   típicas y las mediciones del técnico.

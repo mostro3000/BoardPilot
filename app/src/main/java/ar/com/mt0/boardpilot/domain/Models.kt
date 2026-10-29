@@ -27,7 +27,21 @@ data class BoardComponent(
     val visibleDamage: String? = null,
 )
 
-enum class BoardType { SMPS, TV_MONITOR, INVERTER_APPLIANCE }
+/**
+ * Tipo de placa: define las fallas tipicas y la estrategia de medicion que se le
+ * dan a Muse Spark ([BoardPlaybooks]). UNKNOWN = el tecnico no lo eligio y lo
+ * detecta Muse Spark en el diagnostico.
+ */
+enum class BoardType { SMPS, TV_MONITOR, INVERTER_APPLIANCE, CONTROL_BOARD, AUDIO_AMP, OTHER, UNKNOWN }
+
+/**
+ * Zona de la placa donde se mide; decide el aviso de seguridad junto con el
+ * tipo de medicion. PRIMARY: lado de red (antes del transformador u
+ * optoacoplador, el bus de continua y toda placa no aislada); SECONDARY: lado
+ * aislado de baja tension; HIGH_VOLTAGE: alta tension especial (inverters de
+ * CCFL, microondas, tubos). Ante la duda, PRIMARY.
+ */
+enum class HazardZone { PRIMARY, SECONDARY, HIGH_VOLTAGE }
 
 data class Hypothesis(
     val id: String,
@@ -83,6 +97,7 @@ data class MeasurementRequest(
     val gate: SafetyGate,
     val targetHypothesisId: String,
     val probes: ProbeGuide? = null,
+    val zone: HazardZone = HazardZone.PRIMARY,
 )
 
 enum class MeasurementOutcome { NORMAL, ABNORMAL, UNCLEAR }

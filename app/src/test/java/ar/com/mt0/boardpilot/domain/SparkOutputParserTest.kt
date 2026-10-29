@@ -216,6 +216,43 @@ class SparkOutputParserTest {
     }
 
     @Test
+    fun `tipo de placa que identifica Muse Spark`() {
+        assertEquals(BoardType.TV_MONITOR, SparkOutputParser.parseBoardType("TV_MONITOR"))
+        assertEquals(BoardType.TV_MONITOR, SparkOutputParser.parseBoardType("TV/monitor main board or T-con"))
+        assertEquals(BoardType.SMPS, SparkOutputParser.parseBoardType("TV power supply"))
+        assertEquals(BoardType.INVERTER_APPLIANCE, SparkOutputParser.parseBoardType("compressor inverter"))
+        assertEquals(BoardType.AUDIO_AMP, SparkOutputParser.parseBoardType("audio amplifier"))
+        // UNKNOWN es "detectar": el modelo no lo puede devolver; lo ilegible tampoco.
+        assertNull(SparkOutputParser.parseBoardType("UNKNOWN"))
+        assertNull(SparkOutputParser.parseBoardType("tostadora espacial"))
+        val d = SparkOutputParser.parse(validJson.replace("\"needMoreEvidence\":\"\"}",
+            "\"needMoreEvidence\":\"\",\"boardType\":\"INVERTER_APPLIANCE\"}"), components)
+        assertEquals(BoardType.INVERTER_APPLIANCE, d.boardType)
+    }
+
+    @Test
+    fun `cada medicion trae su zona y nunca hay tension en alta tension`() {
+        assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone(null))
+        assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone("no se"))
+        assertEquals(HazardZone.SECONDARY, SparkOutputParser.parseZone("secondary"))
+        assertEquals(HazardZone.HIGH_VOLTAGE, SparkOutputParser.parseZone("HIGH_VOLTAGE"))
+        val json = """
+            {"hypotheses":[{"id":"h1","title":"CCFL","componentId":"trf1-sam0","confidence":0.5,"rationale":"r"}],
+             "measurements":[
+              {"id":"m1","componentId":"trf1-sam0","kind":"VOLTAGE_DC","instruction":"i","targetHypothesisId":"h1","zone":"HIGH_VOLTAGE"},
+              {"id":"m2","componentId":"trf1-sam0","kind":"RESISTANCE","instruction":"i","targetHypothesisId":"h1","zone":"HIGH_VOLTAGE"},
+              {"id":"m3","componentId":"cyl5-sam7","kind":"VOLTAGE_DC","instruction":"i","targetHypothesisId":"h1","zone":"SECONDARY"},
+              {"id":"m4","componentId":"cyl5-sam7","kind":"DIODE","instruction":"i","targetHypothesisId":"h1"}
+             ]}
+        """.trimIndent()
+        val requests = SparkOutputParser.parse(json, components).requests
+        // La tension en alta tension se descarta; desenergizado en alta tension, si.
+        assertEquals(listOf("m2", "m3", "m4"), requests.map { it.id })
+        assertEquals(listOf(HazardZone.HIGH_VOLTAGE, HazardZone.SECONDARY, HazardZone.PRIMARY),
+            requests.map { it.zone })
+    }
+
+    @Test
     fun `puntas validadas contra la foto`() {
         val m1 = MeasurementRequest(
             "m1", "cyl5-sam7", MeasurementKind.DIODE, "i", "n", "a", SafetyGate.DE_ENERGIZED, "h1",

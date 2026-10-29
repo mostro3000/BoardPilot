@@ -39,7 +39,12 @@ for another measurement or photo instead of inventing an answer.
 4. **Hypotheses (Muse Spark)** — the annotated photo, the candidate list (JSON with
    stable ids and normalized boxes) and the symptom produce up to four ranked
    hypotheses, each with its confidence, rationale and the concrete fix if confirmed
-   (part type, ratings, package, an example part number).
+   (part type, ratings, package, an example part number). Muse Spark first identifies
+   the **board type** (power supply, TV/monitor board, motor inverter, appliance
+   control board, audio amplifier, other), or uses the one the technician picked, and
+   applies that type's typical failures and measurement strategy (versioned playbooks
+   in `app/src/main/resources/playbooks.json`). Faults a multimeter cannot fix
+   (firmware, BGA, the panel) come back as advice instead of hypotheses.
 5. **Guided measurements** — one at a time: continuity, resistance, diode test or DC
    voltage, with what a normal vs. abnormal reading looks like. Every measurement is
    behind a **safety gate chosen by the code, never by the model**, and each result
@@ -172,9 +177,12 @@ ever embedded in the APK or in this repository.
 
 ## Limitations
 
-- Built for boards with visible, through-hole or larger SMD parts: switch-mode power
-  supplies, TV/monitor boards and appliance inverter boards. Phones and micro-soldering
-  (0402, BGA, microscope work) are out of scope.
+- Built for mains-powered boards with visible, through-hole or larger SMD parts:
+  switch-mode power supplies, TV/monitor boards, motor and compressor inverters,
+  appliance control boards, audio amplifiers and similar. Each measurement is tagged
+  with its hazard zone (mains side, low voltage, high voltage) and live measurements
+  are never guided in high-voltage zones. Phones and micro-soldering (0402, BGA,
+  microscope work) and dense logic boards are out of scope.
 - SAM needs a reasonably sharp, well-lit photo of the board, taken straight on.
 - No schematics or boardviews: the diagnosis works from what is visible, typical
   topologies and the technician's measurements.

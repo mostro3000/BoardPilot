@@ -88,11 +88,11 @@ class SessionCodecTest {
         )
         val text = SessionCodec.encode(session)
         assertEquals(session, SessionCodec.decode(text))
-        // Formato anterior: mediciones de 8 campos y resultados de 3.
+        // Formato anterior: mediciones de 8 campos (sin puntas ni zona) y resultados de 3.
         val legacy = text.lines().joinToString("\n") { line ->
             val parts = line.split("|")
             when (parts.size) {
-                9 -> parts.take(8).joinToString("|")
+                10 -> parts.take(8).joinToString("|")
                 4 -> parts.take(3).joinToString("|")
                 else -> line
             }
@@ -100,5 +100,30 @@ class SessionCodecTest {
         val old = SessionCodec.decode(legacy)
         assertEquals(listOf(null, null, null), old.pendingRequests.map { it.probes })
         assertEquals("", old.results.single().componentId)
+    }
+
+    @Test
+    fun `zona de cada medicion y sesiones de antes de la zona`() {
+        val base = DemoCaseSmps.requests(AppLanguage.ES).first()
+        val session = DemoCaseSmps.newSession(AppLanguage.ES).copy(
+            boardType = BoardType.TV_MONITOR,
+            components = DemoCaseSmps.components(AppLanguage.ES),
+            hypotheses = DemoCaseSmps.hypotheses(AppLanguage.ES),
+            pendingRequests = listOf(
+                base.copy(zone = HazardZone.SECONDARY),
+                base.copy(id = "m_hv", kind = MeasurementKind.RESISTANCE, zone = HazardZone.HIGH_VOLTAGE),
+            ),
+            stage = Stage.HYPOTHESES,
+        )
+        val text = SessionCodec.encode(session)
+        assertEquals(session, SessionCodec.decode(text))
+        // Con puntas pero sin zona (9 campos): la mas estricta, el lado de red.
+        val beforeZone = text.lines().joinToString("\n") { line ->
+            val parts = line.split("|")
+            if (parts.size == 10) parts.take(9).joinToString("|") else line
+        }
+        val old = SessionCodec.decode(beforeZone)
+        assertEquals(listOf(HazardZone.PRIMARY, HazardZone.PRIMARY), old.pendingRequests.map { it.zone })
+        assertEquals(base.probes, old.pendingRequests.first().probes)
     }
 }

@@ -123,7 +123,7 @@ class MetaImageClient(
     companion object {
         // Mismo prompt validado por tools/smoke_image.py (mantener en sync).
         private const val PROMPT = "Edit the attached photo of an electronic " +
-            "power supply board. Keep the exact same board, camera angle, " +
+            "circuit board. Keep the exact same board, camera angle, " +
             "framing and background. Show the board AFTER a successful repair: " +
             "DAMAGE is cleaned, the damaged component is replaced with a new " +
             "clean component of the same type, scorch marks are gone and solder " +

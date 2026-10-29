@@ -80,6 +80,17 @@ class DiagnosisEngine(
         }
     }
 
+    /**
+     * Tipo de placa: el que elige el tecnico al ingreso o el que detecta Muse
+     * Spark antes de cargar las hipotesis.
+     */
+    fun updateBoardType(type: BoardType) {
+        check(session.stage == Stage.INTAKE || session.stage == Stage.MAPPING) {
+            "El tipo de placa se fija antes de las hipotesis"
+        }
+        session = session.copy(boardType = type)
+    }
+
     /** Guia de puntas sugerida para mediciones pendientes (por id); no cambia la etapa. */
     fun attachProbes(guides: Map<String, ProbeGuide>) {
         if (guides.isEmpty()) return

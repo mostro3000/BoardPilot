@@ -27,7 +27,7 @@ MODEL = os.environ.get("MUSE_IMAGE_MODEL", "muse-image-1.0")
 KEY = os.environ.get("MODEL_API_KEY", "")
 
 PROMPT = (
-    "Edit the attached photo of an electronic power supply board. Keep the "
+    "Edit the attached photo of an electronic circuit board. Keep the "
     "exact same board, camera angle, framing and background. Show the board "
     "AFTER a successful repair: DAMAGE is cleaned, the damaged component is "
     "replaced with a new clean component of the same type, scorch marks are "

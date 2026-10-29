@@ -4,6 +4,7 @@ import ar.com.mt0.boardpilot.domain.BoardComponent
 import ar.com.mt0.boardpilot.domain.BoardType
 import ar.com.mt0.boardpilot.domain.ComponentKind
 import ar.com.mt0.boardpilot.domain.DiagnosisSession
+import ar.com.mt0.boardpilot.domain.HazardZone
 import ar.com.mt0.boardpilot.domain.Hypothesis
 import ar.com.mt0.boardpilot.domain.MeasurementKind
 import ar.com.mt0.boardpilot.domain.MeasurementRequest
@@ -66,6 +67,7 @@ object DemoCaseSmps {
                 abnormalDescription = "Abierto (OL): fusible quemado.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_f1",
                 probes = fuseProbes("extremo izquierdo", "extremo derecho"),
+                zone = HazardZone.PRIMARY,
             ),
             MeasurementRequest(
                 id = "m_q3", componentId = "q3", kind = MeasurementKind.RESISTANCE,
@@ -74,6 +76,7 @@ object DemoCaseSmps {
                 abnormalDescription = "Corto: ~0 Ω / pita en ambos sentidos. MOSFET destruido.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_q3",
                 probes = mosfetProbes("drenaje (pata central)", "− de C12 (masa del primario)"),
+                zone = HazardZone.PRIMARY,
             ),
         )
         AppLanguage.EN -> listOf(
@@ -84,6 +87,7 @@ object DemoCaseSmps {
                 abnormalDescription = "Open (OL): fuse blown.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_f1",
                 probes = fuseProbes("left end", "right end"),
+                zone = HazardZone.PRIMARY,
             ),
             MeasurementRequest(
                 id = "m_q3", componentId = "q3", kind = MeasurementKind.RESISTANCE,
@@ -92,6 +96,7 @@ object DemoCaseSmps {
                 abnormalDescription = "Short: ~0 Ω / beeps both ways. MOSFET destroyed.",
                 gate = SafetyGate.DE_ENERGIZED, targetHypothesisId = "h_q3",
                 probes = mosfetProbes("drain (middle pin)", "C12 − (primary ground)"),
+                zone = HazardZone.PRIMARY,
             ),
         )
     }

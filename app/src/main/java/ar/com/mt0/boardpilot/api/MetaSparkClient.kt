@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.util.Base64
 import ar.com.mt0.boardpilot.domain.BoardComponent
+import ar.com.mt0.boardpilot.domain.BoardPlaybooks
+import ar.com.mt0.boardpilot.domain.BoardType
 import ar.com.mt0.boardpilot.domain.DamageFinding
 import ar.com.mt0.boardpilot.domain.Hypothesis
 import ar.com.mt0.boardpilot.domain.MeasurementRequest
@@ -81,6 +83,7 @@ class MetaSparkClient(
         symptom: String,
         language: AppLanguage,
         damageFindings: List<DamageFinding> = emptyList(),
+        boardType: BoardType = BoardType.UNKNOWN,
     ): String = withContext(Dispatchers.IO) {
         // Placas densas: como mucho SparkCandidates.MAX (si no, el modelo no llega a responder).
         val shown = SparkCandidates.select(components)
@@ -107,7 +110,10 @@ class MetaSparkClient(
             put("messages", JSONArray()
                 .put(JSONObject().apply {
                     put("role", "system")
-                    put("content", SYSTEM_PROMPT.replace("LANGUAGE", languageName))
+                    // Fallas tipicas del tipo elegido, o detectarlo primero (BoardPlaybooks).
+                    put("content", SYSTEM_PROMPT
+                        .replace("BOARD_RULES", BoardPlaybooks.promptSection(boardType))
+                        .replace("LANGUAGE", languageName))
                 })
                 .put(JSONObject().apply {
                     put("role", "user")
@@ -141,6 +147,7 @@ class MetaSparkClient(
         hypotheses: List<Hypothesis>,
         done: List<MeasurementResult>,
         language: AppLanguage,
+        boardType: BoardType = BoardType.UNKNOWN,
     ): String = withContext(Dispatchers.IO) {
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
         val hypothesesJson = JSONArray().apply {
@@ -163,7 +170,9 @@ class MetaSparkClient(
                 })
             }
         }
-        val userText = "Symptom: $symptom\n" +
+        val board = if (boardType == BoardType.UNKNOWN) "" else
+            "Board type: ${boardType.name}. ${BoardPlaybooks.guide(boardType)}\n"
+        val userText = "Symptom: $symptom\n" + board +
             "Candidate components:\n" +
             candidatesJson(SparkCandidates.select(components, hypotheses.map { it.componentId }.toSet())) +
             "\nCurrent hypotheses:\n" + hypothesesJson + "\n" +
@@ -360,26 +369,29 @@ Use tight normalized boxes (0..1, origin top-left) around each damaged component
         private const val SYSTEM_PROMPT = """You are BoardPilot, an expert electronics repair copilot for component-level PCB diagnosis.
 You receive TWO images of the same board: first the clean photo, second the same photo annotated with candidate regions from a segmentation model; plus the candidate list as JSON (normalized 0..1 coordinates, origin top-left) and a symptom. Candidates are visual regions and may be wrong or incomplete; use the clean photo (labels can hide detail) to interpret what each region really is.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
-{"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":""}
+{"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":"","boardType":"..."}
 Rules:
 - FIRST scan the ENTIRE photo for visible damage: burnt/charred/blackened components or PCB areas, bulging or leaking capacitors, cracked or melted parts, heavy corrosion. For every candidate that is visibly damaged add a "damages" entry describing it. A visibly burnt or exploded component is the strongest evidence there is: rank its hypothesis FIRST with the highest confidence and target it with the first measurement.
 - If visible damage has NO candidate box around it, report it in "unmappedDamage" with a tight normalized box (x,y,w,h in 0..1) around the damaged component/area; in that case you may reference that region as componentId "dmg1-spark" in hypotheses and measurements. If there is no unmapped damage, set "unmappedDamage" to null.
 - componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts; never invent silkscreen reference designators.
-- At most 4 hypotheses ranked by likelihood for the symptom (on a dead switch-mode power supply consider fuse, bridge rectifier, bulk capacitor, switching MOSFET short, startup resistor, PWM controller supply, optocoupler/feedback, secondary diodes and output capacitors) adapted to what is actually visible.
+BOARD_RULES
 - For each hypothesis, "fix" says what to replace or repair if it is confirmed, written as a direct action without restating the condition (for example "Replace with ..."), with a generic replacement spec when it applies (part type, key ratings, package and a common part number as an example).
 - Whenever you give hypotheses, also give between 1 and 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
+- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
 - Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If the photo or candidates are insufficient, return empty arrays and explain in needMoreEvidence what photo/measurement you need.
+- Faults that a multimeter cannot confirm or fix (firmware, BGA chips, the display panel itself) are not hypotheses: if they are likely, say so in needMoreEvidence with the next step (for example reflashing or replacing the module), even when you also give hypotheses.
 - All user-visible strings (title, rationale, fix, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
 
         // Mismo prompt que tools/smoke_spark.py --plan (mantener en sync).
         private const val PLAN_PROMPT = """You are BoardPilot, an expert electronics repair copilot guiding a technician with a multimeter, one measurement at a time.
 You receive the clean photo of a board, its candidate components (JSON, normalized 0..1 boxes, origin top-left), the symptom, the current fault hypotheses (with ids and confidence) and the measurements already done with their results. Propose the NEXT measurements that best confirm or rule out the hypotheses, most informative first.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
-{"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"needMoreEvidence":""}
+{"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"needMoreEvidence":""}
 Rules:
 - Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list and one componentId exactly as in the candidate list.
 - kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.
+- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
 - Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
 - All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""

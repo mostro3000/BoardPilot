@@ -12,6 +12,8 @@ data class SparkDiagnosis(
     val damages: Map<String, String> = emptyMap(),
     /** Componentes sinteticos por dano visible SIN caja SAM (p. ej. DMG 1). */
     val extraComponents: List<BoardComponent> = emptyList(),
+    /** Tipo de placa que identifico Muse Spark (null si no lo dijo o no se entiende). */
+    val boardType: BoardType? = null,
 )
 
 /** Siguientes mediciones pedidas a Muse Spark sobre hipotesis ya cargadas. */
@@ -118,7 +120,38 @@ object SparkOutputParser {
                 ?.let { humanize(it, hypotheses, known) },
             damages = damages,
             extraComponents = extraComponents,
+            boardType = parseBoardType(root.str("boardType")),
         )
+    }
+
+    /** Tipo de placa como lo escribe el modelo: el nombre exacto o un sinonimo (ES/EN). */
+    fun parseBoardType(raw: String?): BoardType? {
+        val key = raw?.trim()?.uppercase()?.takeIf { it.isNotEmpty() } ?: return null
+        BoardType.entries.firstOrNull { it.name == key && it != BoardType.UNKNOWN }?.let { return it }
+        return when {
+            "SMPS" in key || "POWER SUPPLY" in key || "FUENTE" in key || "CHARGER" in key ->
+                BoardType.SMPS
+            "AUDIO" in key || "AMPLIF" in key -> BoardType.AUDIO_AMP
+            "TV" in key || "MONITOR" in key || "T-CON" in key || "TCON" in key ||
+                "MAIN BOARD" in key || "MAINBOARD" in key -> BoardType.TV_MONITOR
+            "INVERTER" in key || "MOTOR" in key || "COMPRESSOR" in key -> BoardType.INVERTER_APPLIANCE
+            "CONTROL" in key || "APPLIANCE" in key -> BoardType.CONTROL_BOARD
+            "OTHER" in key || "OTRA" in key -> BoardType.OTHER
+            else -> null
+        }
+    }
+
+    /**
+     * Zona donde se mide, como la escribe el modelo; si falta o no se entiende,
+     * la mas estricta (lado de red).
+     */
+    fun parseZone(raw: String?): HazardZone {
+        val key = raw?.trim()?.uppercase()?.replace(Regex("[^A-Z]+"), "_") ?: return HazardZone.PRIMARY
+        return when {
+            "HIGH" in key || key == "HV" || "ALTA" in key -> HazardZone.HIGH_VOLTAGE
+            "SECOND" in key || "SECUND" in key || "LOW" in key || "COLD" in key -> HazardZone.SECONDARY
+            else -> HazardZone.PRIMARY
+        }
     }
 
     /**
@@ -276,6 +309,11 @@ object SparkOutputParser {
             val componentId = resolve(m.str("componentId"), components, reserved)
                 ?: return@mapIndexedNotNull null
             val kind = parseKind(m.str("kind")) ?: return@mapIndexedNotNull null
+            // Nunca se guian mediciones con tension en alta tension especial.
+            val zone = parseZone(m.str("zone"))
+            if (kind == MeasurementKind.VOLTAGE_DC && zone == HazardZone.HIGH_VOLTAGE) {
+                return@mapIndexedNotNull null
+            }
             // Sin destino valido, solo la hipotesis sobre ese mismo componente: una
             // lectura anormal nunca debe reforzar la hipotesis de otro componente.
             val target = m.str("targetHypothesisId")?.takeIf { it in hypIds }
@@ -296,6 +334,7 @@ object SparkOutputParser {
                 abnormalDescription = human(m.firstStr("abnormal", "abnormalDescription", "fault").orEmpty()),
                 gate = safetyGateFor(kind),
                 targetHypothesisId = target,
+                zone = zone,
             )
         }
     }

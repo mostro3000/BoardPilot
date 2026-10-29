@@ -1,5 +1,7 @@
 package ar.com.mt0.boardpilot.i18n
 
+import ar.com.mt0.boardpilot.domain.BoardType
+import ar.com.mt0.boardpilot.domain.HazardZone
 import ar.com.mt0.boardpilot.domain.MeasurementKind
 import ar.com.mt0.boardpilot.domain.RejectReason
 import ar.com.mt0.boardpilot.domain.SafetyGate
@@ -172,7 +174,7 @@ interface AppStrings {
     val eggDiodeHeader: String
     val eggDiodeDuring: String
     val eggDiodeAfter: String
-    fun gateWarning(gate: SafetyGate): String
+    fun gateWarning(gate: SafetyGate, zone: HazardZone): String
     fun stageName(stage: Stage): String
     fun kindName(kind: MeasurementKind): String
     fun rejectMessage(reason: RejectReason): String
@@ -194,6 +196,13 @@ interface AppStrings {
     val mapVerdictTag: String
     fun mapShowAll(total: Int): String
     fun mapMainOnly(count: Int): String
+
+    // Tipo de placa y zona de riesgo de cada medicion.
+    val boardTypeLabel: String
+    val boardTypeHint: String
+    fun boardTypeName(type: BoardType): String
+    val zoneLabel: String
+    fun zoneName(zone: HazardZone): String
 }
 
 fun appStrings(language: AppLanguage): AppStrings = when (language) {
@@ -352,11 +361,23 @@ object EsStrings : AppStrings {
     override val eggDiodeDuring = "2 A por un 1N4148 de 300 mA..."
     override val eggDiodeAfter = "Eso era D3. Quedó en corto: medilo en modo diodo."
 
-    override fun gateWarning(gate: SafetyGate): String = when (gate) {
-        SafetyGate.DE_ENERGIZED ->
-            "Equipo DESENCHUFADO y capacitores descargados. Nunca midas continuidad/resistencia con tensión aplicada."
-        SafetyGate.LIVE_VOLTAGE ->
-            "Medición CON TENSIÓN: riesgo de descarga eléctrica. Trabajá con una sola mano y puntas aisladas."
+    override fun gateWarning(gate: SafetyGate, zone: HazardZone): String = when (gate) {
+        SafetyGate.DE_ENERGIZED -> when (zone) {
+            HazardZone.PRIMARY ->
+                "Equipo DESENCHUFADO y el capacitor grande del lado de red descargado (puede guardar más de 300 V). Nunca midas continuidad/resistencia con tensión aplicada."
+            HazardZone.SECONDARY ->
+                "Equipo DESENCHUFADO y capacitores descargados. Nunca midas continuidad/resistencia con tensión aplicada."
+            HazardZone.HIGH_VOLTAGE ->
+                "ZONA DE ALTA TENSIÓN: puede guardar carga mortal aun desenchufada. Descargala con una resistencia adecuada y verificá 0 V antes de tocar."
+        }
+        SafetyGate.LIVE_VOLTAGE -> when (zone) {
+            HazardZone.PRIMARY ->
+                "Medición CON TENSIÓN en el lado de red (más de 300 V): riesgo de descarga mortal. Una sola mano, puntas aisladas y sin tocar la placa."
+            HazardZone.SECONDARY ->
+                "Medición CON TENSIÓN en baja tensión, con el equipo enchufado: no toques el lado de red. Una sola mano y puntas aisladas."
+            HazardZone.HIGH_VOLTAGE ->
+                "Nunca se guían mediciones con tensión en zonas de alta tensión."
+        }
     }
 
     override fun stageName(stage: Stage): String = when (stage) {
@@ -397,6 +418,23 @@ object EsStrings : AppStrings {
     override val mapVerdictTag = "veredicto"
     override fun mapShowAll(total: Int) = "Ver las $total cajas"
     override fun mapMainOnly(count: Int) = "Ver solo las $count principales"
+    override val boardTypeLabel = "Tipo de placa"
+    override val boardTypeHint = "Si no lo elegís, lo detecta Muse Spark al diagnosticar."
+    override fun boardTypeName(type: BoardType): String = when (type) {
+        BoardType.SMPS -> "Fuente conmutada o cargador"
+        BoardType.TV_MONITOR -> "Placa de TV o monitor"
+        BoardType.INVERTER_APPLIANCE -> "Inverter de motor o compresor"
+        BoardType.CONTROL_BOARD -> "Placa de control de electrodoméstico"
+        BoardType.AUDIO_AMP -> "Amplificador de audio"
+        BoardType.OTHER -> "Otra placa"
+        BoardType.UNKNOWN -> "Detectar con Muse Spark"
+    }
+    override val zoneLabel = "Zona"
+    override fun zoneName(zone: HazardZone): String = when (zone) {
+        HazardZone.PRIMARY -> "lado de red (primario)"
+        HazardZone.SECONDARY -> "baja tensión (secundario)"
+        HazardZone.HIGH_VOLTAGE -> "alta tensión"
+    }
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No queda ninguna medición pendiente."
@@ -556,11 +594,23 @@ object EnStrings : AppStrings {
     override val eggDiodeDuring = "2 A through a 300 mA 1N4148..."
     override val eggDiodeAfter = "That was D3. It failed short: check it in diode mode."
 
-    override fun gateWarning(gate: SafetyGate): String = when (gate) {
-        SafetyGate.DE_ENERGIZED ->
-            "Unit UNPLUGGED and capacitors discharged. Never measure continuity/resistance with power applied."
-        SafetyGate.LIVE_VOLTAGE ->
-            "LIVE measurement: electric shock risk. Work one-handed with insulated probes."
+    override fun gateWarning(gate: SafetyGate, zone: HazardZone): String = when (gate) {
+        SafetyGate.DE_ENERGIZED -> when (zone) {
+            HazardZone.PRIMARY ->
+                "Unit UNPLUGGED and the big mains-side capacitor discharged (it can hold more than 300 V). Never measure continuity/resistance with power applied."
+            HazardZone.SECONDARY ->
+                "Unit UNPLUGGED and capacitors discharged. Never measure continuity/resistance with power applied."
+            HazardZone.HIGH_VOLTAGE ->
+                "HIGH-VOLTAGE ZONE: it can hold a lethal charge even unplugged. Discharge it with a suitable resistor and check 0 V before touching."
+        }
+        SafetyGate.LIVE_VOLTAGE -> when (zone) {
+            HazardZone.PRIMARY ->
+                "LIVE measurement on the mains side (over 300 V): lethal shock risk. One hand, insulated probes and do not touch the board."
+            HazardZone.SECONDARY ->
+                "LIVE low-voltage measurement with the unit plugged in: do not touch the mains side. One hand and insulated probes."
+            HazardZone.HIGH_VOLTAGE ->
+                "Live measurements are never guided in high-voltage zones."
+        }
     }
 
     override fun stageName(stage: Stage): String = when (stage) {
@@ -601,6 +651,23 @@ object EnStrings : AppStrings {
     override val mapVerdictTag = "verdict"
     override fun mapShowAll(total: Int) = "Show all $total boxes"
     override fun mapMainOnly(count: Int) = "Show only the $count main ones"
+    override val boardTypeLabel = "Board type"
+    override val boardTypeHint = "If you don't choose one, Muse Spark detects it when diagnosing."
+    override fun boardTypeName(type: BoardType): String = when (type) {
+        BoardType.SMPS -> "Switch-mode power supply or charger"
+        BoardType.TV_MONITOR -> "TV or monitor board"
+        BoardType.INVERTER_APPLIANCE -> "Motor or compressor inverter"
+        BoardType.CONTROL_BOARD -> "Appliance control board"
+        BoardType.AUDIO_AMP -> "Audio amplifier"
+        BoardType.OTHER -> "Other board"
+        BoardType.UNKNOWN -> "Detect with Muse Spark"
+    }
+    override val zoneLabel = "Zone"
+    override fun zoneName(zone: HazardZone): String = when (zone) {
+        HazardZone.PRIMARY -> "mains side (primary)"
+        HazardZone.SECONDARY -> "low voltage (secondary)"
+        HazardZone.HIGH_VOLTAGE -> "high voltage"
+    }
 
     override fun rejectMessage(reason: RejectReason): String = when (reason) {
         RejectReason.NO_PENDING_REQUEST -> "No measurement is pending."

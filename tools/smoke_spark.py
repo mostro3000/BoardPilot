@@ -45,27 +45,54 @@ Use tight normalized boxes (0..1, origin top-left) around each damaged component
 SYSTEM = """You are BoardPilot, an expert electronics repair copilot for component-level PCB diagnosis.
 You receive TWO images of the same board: first the clean photo, second the same photo annotated with candidate regions from a segmentation model; plus the candidate list as JSON (normalized 0..1 coordinates, origin top-left) and a symptom. Candidates are visual regions and may be wrong or incomplete; use the clean photo (labels can hide detail) to interpret what each region really is.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
-{"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":""}
+{"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":"","boardType":"..."}
 Rules:
 - FIRST scan the ENTIRE photo for visible damage: burnt/charred/blackened components or PCB areas, bulging or leaking capacitors, cracked or melted parts, heavy corrosion. For every candidate that is visibly damaged add a "damages" entry describing it. A visibly burnt or exploded component is the strongest evidence there is: rank its hypothesis FIRST with the highest confidence and target it with the first measurement.
 - If visible damage has NO candidate box around it, report it in "unmappedDamage" with a tight normalized box (x,y,w,h in 0..1) around the damaged component/area; in that case you may reference that region as componentId "dmg1-spark" in hypotheses and measurements. If there is no unmapped damage, set "unmappedDamage" to null.
 - componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts; never invent silkscreen reference designators.
-- At most 4 hypotheses ranked by likelihood for the symptom (on a dead switch-mode power supply consider fuse, bridge rectifier, bulk capacitor, switching MOSFET short, startup resistor, PWM controller supply, optocoupler/feedback, secondary diodes and output capacitors) adapted to what is actually visible.
+BOARD_RULES
 - For each hypothesis, "fix" says what to replace or repair if it is confirmed, written as a direct action without restating the condition (for example "Replace with ..."), with a generic replacement spec when it applies (part type, key ratings, package and a common part number as an example).
 - Whenever you give hypotheses, also give between 1 and 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
+- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
 - Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If the photo or candidates are insufficient, return empty arrays and explain in needMoreEvidence what photo/measurement you need.
+- Faults that a multimeter cannot confirm or fix (firmware, BGA chips, the display panel itself) are not hypotheses: if they are likely, say so in needMoreEvidence with the next step (for example reflashing or replacing the module), even when you also give hypotheses.
 - All user-visible strings (title, rationale, fix, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
+
+
+# Guias por tipo de placa: el mismo archivo que lee la app (BoardPlaybooks).
+PLAYBOOKS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "src", "main",
+                                        "resources", "playbooks.json"), encoding="utf-8"))
+BOARD_TYPES = list(PLAYBOOKS["types"])
+
+
+def board_section(board: str) -> str:
+    """Como BoardPlaybooks.promptSection: el tipo elegido o detectarlo primero."""
+    if board == "UNKNOWN":
+        return ('- FIRST identify what kind of board this is from the photo and report "boardType" as exactly '
+                "one of " + ", ".join(BOARD_TYPES) + ". Then give at most 4 hypotheses ranked by likelihood "
+                "with the typical failures of THAT kind of board for the symptom, adapted to what is actually "
+                "visible:\n" + "\n".join(f"  - {t}: {PLAYBOOKS['types'][t]}" for t in BOARD_TYPES))
+    return (f'- The technician says this board is {board}: report "boardType" as {board} and give at most 4 '
+            "hypotheses ranked by likelihood with its typical failures for the symptom, adapted to what is "
+            f"actually visible. {PLAYBOOKS['types'][board]}")
+
+
+def board_arg() -> str:
+    """--board=TIPO (por defecto UNKNOWN: detectar)."""
+    raw = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--board=")), "UNKNOWN").upper()
+    return raw if raw in BOARD_TYPES or raw == "UNKNOWN" else "UNKNOWN"
 
 
 # Mismo prompt que MetaSparkClient.PLAN_PROMPT (mantener en sync).
 PLAN = """You are BoardPilot, an expert electronics repair copilot guiding a technician with a multimeter, one measurement at a time.
 You receive the clean photo of a board, its candidate components (JSON, normalized 0..1 boxes, origin top-left), the symptom, the current fault hypotheses (with ids and confidence) and the measurements already done with their results. Propose the NEXT measurements that best confirm or rule out the hypotheses, most informative first.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
-{"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1"}],"needMoreEvidence":""}
+{"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"needMoreEvidence":""}
 Rules:
 - Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list and one componentId exactly as in the candidate list.
 - kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.
+- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
 - Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
 - If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
 - All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
@@ -183,7 +210,7 @@ def assign_damage(findings: list[dict], candidates: list[dict]) -> list[str]:
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) < 3:
-        print('Uso: smoke_spark.py IMAGEN CANDIDATOS.json "sintoma" [ES|EN] [--plan] [--probes]')
+        print('Uso: smoke_spark.py IMAGEN CANDIDATOS.json "sintoma" [ES|EN] [--plan] [--probes] [--board=TIPO]')
         return 2
     if not KEY:
         print("ERROR: falta MODEL_API_KEY en el entorno.")
@@ -233,7 +260,8 @@ def main() -> int:
         "max_tokens": int(os.environ.get("SPARK_MAX_TOKENS", "12000")),
         "temperature": 0.2,
         "messages": [
-            {"role": "system", "content": SYSTEM.replace("LANGUAGE", language)},
+            {"role": "system", "content": SYSTEM.replace("BOARD_RULES", board_section(board_arg()))
+                .replace("LANGUAGE", language)},
             {"role": "user", "content": [
                 {"type": "text", "text": user_text},
                 {"type": "image_url", "image_url": {"url": clean_url}},
@@ -277,6 +305,11 @@ def main() -> int:
             problems.append(f"medicion con kind invalido: {m}")
         if m.get("targetHypothesisId") not in hyp_ids:
             problems.append(f"medicion sin hipotesis destino valida: {m}")
+    print(f"tipo de placa: elegido={board_arg()} detectado={parsed.get('boardType')}")
+    for m in meas:
+        print(f"MED {m.get('kind')} {m.get('componentId')} zona={m.get('zone')}: {str(m.get('instruction'))[:90]}")
+        if m.get("kind") == "VOLTAGE_DC" and str(m.get("zone")).upper() == "HIGH_VOLTAGE":
+            problems.append(f"medicion con tension en alta tension (la app la descarta): {m.get('id')}")
     print(f"hipotesis={len(hyps)} mediciones={len(meas)} "
           f"needMoreEvidence={str(parsed.get('needMoreEvidence'))[:120]!r}")
     for hpos in hyps:
@@ -399,7 +432,9 @@ def plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) -
     hyp_list = [{"id": h.get("id"), "title": h.get("title"), "componentId": h.get("componentId"),
                  "confidence": h.get("confidence"), "confirmedByMeasurement": False} for h in hyps]
     shown = select_candidates(candidates, {h.get("componentId") for h in hyps})
-    user_text = (f"Symptom: {symptom}\nCandidate components:\n{json.dumps(shown, ensure_ascii=False)}\n"
+    board = board_arg()
+    board_line = "" if board == "UNKNOWN" else f"Board type: {board}. {PLAYBOOKS['types'][board]}\n"
+    user_text = (f"Symptom: {symptom}\n{board_line}Candidate components:\n{json.dumps(shown, ensure_ascii=False)}\n"
                  f"Current hypotheses:\n{json.dumps(hyp_list, ensure_ascii=False)}\n"
                  f"Measurements already done:\n{json.dumps(done, ensure_ascii=False)}")
     body = {

@@ -3,6 +3,7 @@ package ar.com.mt0.boardpilot.domain
 import ar.com.mt0.boardpilot.demo.DemoCaseSmps
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,6 +18,18 @@ class DiagnosisEngineTest {
         )
         engine.startMeasuring()
         return engine
+    }
+
+    @Test
+    fun `el tipo de placa se fija al ingreso o al mapear y no despues`() {
+        val engine = DiagnosisEngine(DemoCaseSmps.newSession(AppLanguage.ES))
+        engine.updateBoardType(BoardType.UNKNOWN)
+        engine.loadMapping(DemoCaseSmps.components(AppLanguage.ES))
+        // Lo que detecta Muse Spark entra antes de cargar las hipotesis.
+        engine.updateBoardType(BoardType.TV_MONITOR)
+        assertEquals(BoardType.TV_MONITOR, engine.session.boardType)
+        engine.loadHypotheses(DemoCaseSmps.hypotheses(AppLanguage.ES), DemoCaseSmps.requests(AppLanguage.ES))
+        assertThrows(IllegalStateException::class.java) { engine.updateBoardType(BoardType.SMPS) }
     }
 
     @Test
