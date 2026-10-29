@@ -41,6 +41,9 @@ interface AppStrings {
     val apiMissing: String
     val apiSave: String
     val apiDelete: String
+    /** Descripción del ojito del campo de la clave (lectores de pantalla). */
+    val showKey: String
+    val hideKey: String
     val stageLabel: String
     val symptomLabel: String
     val hypothesesTitle: String
@@ -218,6 +221,8 @@ object EsStrings : AppStrings {
     override val apiMissing = "Sin clave: BoardPilot no puede diagnosticar."
     override val apiSave = "Guardar clave en el dispositivo"
     override val apiDelete = "Borrar clave"
+    override val showKey = "Mostrar la clave"
+    override val hideKey = "Ocultar la clave"
     override val stageLabel = "Etapa"
     override val symptomLabel = "Síntoma"
     override val hypothesesTitle = "Hipótesis"
@@ -445,6 +450,8 @@ object EnStrings : AppStrings {
     override val apiMissing = "No key: BoardPilot cannot diagnose."
     override val apiSave = "Save key on this device"
     override val apiDelete = "Delete key"
+    override val showKey = "Show key"
+    override val hideKey = "Hide key"
     override val stageLabel = "Stage"
     override val symptomLabel = "Symptom"
     override val hypothesesTitle = "Hypotheses"

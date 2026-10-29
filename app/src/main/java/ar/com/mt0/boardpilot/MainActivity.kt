@@ -123,6 +123,8 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -130,7 +132,9 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.lifecycle.Lifecycle
@@ -1380,6 +1384,9 @@ private fun ApiKeyCard(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var keyText by remember { mutableStateOf("") }
+    // Oculta por defecto; el ojito la muestra mientras se carga (es larga para revisarla
+    // a ciegas). No se guarda: al guardarla o al salir de Configuracion vuelve a ocultarse.
+    var keyVisible by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(strings.apiTitle, fontWeight = FontWeight.Bold)
@@ -1389,7 +1396,18 @@ private fun ApiKeyCard(
                     value = keyText,
                     onValueChange = { keyText = it },
                     label = { Text("MODEL_API_KEY") },
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (keyVisible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    // Teclado de contrasena: no sugiere ni aprende la clave, aunque este a la vista.
+                    keyboardOptions = KeyboardOptions(autoCorrect = false, keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { keyVisible = !keyVisible }) {
+                            EyeIcon(
+                                crossed = !keyVisible,
+                                description = if (keyVisible) strings.hideKey else strings.showKey,
+                            )
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
@@ -1397,6 +1415,7 @@ private fun ApiKeyCard(
                     onClick = {
                         prefs.edit().putString(PREF_API_KEY, keyText.trim()).apply()
                         keyText = ""
+                        keyVisible = false
                         onKeyChanged(true)
                     },
                     enabled = keyText.isNotBlank(),
@@ -1407,6 +1426,32 @@ private fun ApiKeyCard(
                     onKeyChanged(false)
                 }) { Text(strings.apiDelete) }
             }
+        }
+    }
+}
+
+/**
+ * Ojo dibujado en Canvas, como la ruedita (sin dependencias de iconos): abierto con
+ * la clave a la vista, tachado con la clave oculta.
+ */
+@Composable
+private fun EyeIcon(crossed: Boolean, description: String) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(Modifier.size(24.dp).semantics { contentDescription = description }) {
+        val w = size.width
+        val h = size.height
+        val line = w * 0.08f
+        val eye = Path().apply {
+            moveTo(w * 0.06f, h * 0.5f)
+            quadraticBezierTo(w * 0.5f, h * 0.06f, w * 0.94f, h * 0.5f)
+            quadraticBezierTo(w * 0.5f, h * 0.94f, w * 0.06f, h * 0.5f)
+            close()
+        }
+        drawPath(eye, color, style = Stroke(width = line, join = StrokeJoin.Round))
+        drawCircle(color, radius = w * 0.13f, center = center)
+        if (crossed) {
+            drawLine(color, Offset(w * 0.14f, h * 0.12f), Offset(w * 0.86f, h * 0.88f),
+                strokeWidth = line, cap = StrokeCap.Round)
         }
     }
 }
