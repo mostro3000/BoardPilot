@@ -23,9 +23,12 @@ keystore.properties
 # OS
 .DS_Store
 
-# Kotlin / Claude Code (locales)
+# Kotlin / asistentes de codigo (locales: las instrucciones de los agentes y el diario
+# del proyecto viven en el workspace, fuera del repo, y no se suben a GitHub)
 .kotlin/
-.claude/worktrees/
+.claude/
+CLAUDE.md
+boardpilot-hackathon.md
 
 # Python (tools/)
 __pycache__/

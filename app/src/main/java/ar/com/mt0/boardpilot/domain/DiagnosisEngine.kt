@@ -3,7 +3,7 @@ package ar.com.mt0.boardpilot.domain
 /**
  * Maquina de estados del diagnostico. Logica pura, deterministica y testeable.
  *
- * Reglas centrales (ver CLAUDE.md):
+ * Reglas centrales:
  * - Nunca se registra una medicion sin confirmar antes su compuerta de seguridad.
  * - Un veredicto exige evidencia de medicion real que confirme la hipotesis lider
  *   y confianza >= umbral; si la evidencia no alcanza, se pide mas evidencia.

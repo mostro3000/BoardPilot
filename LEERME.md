@@ -11,8 +11,6 @@ propio**.
 
 > Proyecto del Meta Global AI Developer Hackathon (track Indie Developer, tema *Push the
 > Frontier*), construido durante el período del evento (27 oct – 4 nov de 2026).
-> Documentación completa y diario de construcción en
-> [`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md).
 
 ## Por qué
 
@@ -98,17 +96,15 @@ son la evidencia.
   IA); tipos de placa con playbooks versionados y zona de riesgo por medición; se quitó el
   demo offline (BoardPilot siempre diagnostica en vivo, con la clave propia del usuario).
 
-El diario día por día, con mediciones, decisiones y resultados de las pruebas en vivo,
-está en [`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md).
-
 ## Probarla
 
 **Requisitos:** un teléfono con Android 8.0 o superior (API 26+), conexión a internet y
 una clave propia de la Meta Model API (dev.meta.ai). BoardPilot siempre diagnostica en
 vivo: no tiene modo sin conexión.
 
-**Instalar:** descargar el APK desde la página de Releases de este repositorio cuando esté
-disponible, o compilarlo (abajo) e instalarlo con `adb install -r app-debug.apk`.
+**Instalar:** el APK firmado está en [`release/`](release/)
+(`ar.com.mt0.boardpilot-<versión>.apk`): copiarlo al teléfono y abrirlo, o instalarlo con
+`adb install -r`. También se puede compilar (abajo).
 
 **Primer inicio:** sin clave cargada, la app abre en Configuración con el campo de la
 clave primero. Pegar la clave de la Meta Model API: queda guardada solo en el
@@ -131,6 +127,12 @@ Kotlin 2.3.21, Jetpack Compose Material 3; compile/target SDK 37, min SDK 26.
 ./gradlew assembleDebug       # APK en app/build/outputs/apk/debug/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**Release firmado:** `./gradlew signedRelease` arma el APK y el AAB de release firmados con
+tu clave y los copia a `release/` como `ar.com.mt0.boardpilot-<versión>.apk` y `.aab`. La
+clave nunca va al repositorio: se pasan `boardpilotStoreFile`, `boardpilotStorePassword`,
+`boardpilotKeyAlias` y `boardpilotKeyPassword` como propiedades de Gradle (por ejemplo en
+`~/.gradle/gradle.properties`); sin ellas, la tarea se detiene antes de compilar.
 
 Smoke tests contra la Meta Model API (leen la clave solo del entorno y nunca la imprimen):
 

@@ -10,8 +10,7 @@ repair with **Muse Image** — all through the **Meta Model API**, from a **nati
 app with no backend of its own**.
 
 > Built for the Meta Global AI Developer Hackathon (Indie Developer track, *Push the
-> Frontier* theme) during the build period (Oct 27 – Nov 4, 2026). Full design notes and
-> build diary (in Spanish): [`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md).
+> Frontier* theme) during the build period (Oct 27 – Nov 4, 2026).
 
 ## Why
 
@@ -98,17 +97,15 @@ documentation only before it); commit dates are the evidence.
   hazard zones; offline demo removed (BoardPilot always diagnoses live, with the user's
   own key).
 
-The day-by-day diary with measurements, decisions and live test results is in
-[`docs/boardpilot-hackathon.md`](docs/boardpilot-hackathon.md) (Spanish).
-
 ## Try it
 
 **Requirements:** an Android phone with Android 8.0 or newer (API 26+), internet access
 and your own Meta Model API key (dev.meta.ai). BoardPilot always diagnoses live: there is
 no offline mode.
 
-**Install:** download the APK from this repository's Releases page when available, or
-build it from source (below) and install it with `adb install -r app-debug.apk`.
+**Install:** the signed APK is in [`release/`](release/)
+(`ar.com.mt0.boardpilot-<version>.apk`): copy it to the phone and open it, or install it
+with `adb install -r`. You can also build it from source (below).
 
 **First launch:** with no key loaded, the app opens on Settings with the key field
 first. Paste your Meta Model API key: it is stored only in the app's private storage on
@@ -129,6 +126,13 @@ Requirements: JDK 17 and the Android SDK with platform `android-37.0` and build-
 ./gradlew assembleDebug       # APK in app/build/outputs/apk/debug/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**Signed release:** `./gradlew signedRelease` builds the release APK and AAB signed with
+your own key and copies them to `release/` as `ar.com.mt0.boardpilot-<version>.apk` and
+`.aab`. The key never goes into the repository: pass `boardpilotStoreFile`,
+`boardpilotStorePassword`, `boardpilotKeyAlias` and `boardpilotKeyPassword` as Gradle
+properties (for example in `~/.gradle/gradle.properties`); without them the task stops
+before building.
 
 Smoke tests against the Meta Model API (they read the key from the environment only and
 never print it):
