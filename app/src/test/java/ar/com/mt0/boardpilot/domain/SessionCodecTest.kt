@@ -93,13 +93,33 @@ class SessionCodecTest {
             val parts = line.split("|")
             when (parts.size) {
                 10 -> parts.take(8).joinToString("|")
-                4 -> parts.take(3).joinToString("|")
+                5 -> parts.take(3).joinToString("|")
                 else -> line
             }
         }
         val old = SessionCodec.decode(legacy)
         assertEquals(listOf(null, null, null), old.pendingRequests.map { it.probes })
         assertEquals("", old.results.single().componentId)
+    }
+
+    @Test
+    fun `compuerta de cada resultado y sesiones de antes de guardarla`() {
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
+            results = listOf(
+                MeasurementResult("m1", MeasurementOutcome.NORMAL, "n", "f1", SafetyGate.DE_ENERGIZED),
+                MeasurementResult("m2", MeasurementOutcome.ABNORMAL, "n", "q3", SafetyGate.LIVE_VOLTAGE),
+                MeasurementResult("m3", MeasurementOutcome.UNCLEAR, "n", "q3"),
+            ),
+            stage = Stage.HYPOTHESES,
+        )
+        val text = SessionCodec.encode(session)
+        assertEquals(session, SessionCodec.decode(text))
+        // Formato anterior: resultados de 4 campos, sin la compuerta.
+        val beforeGate = text.lines().joinToString("\n") { line ->
+            val parts = line.split("|")
+            if (parts.size == 5) parts.take(4).joinToString("|") else line
+        }
+        assertEquals(listOf(null, null, null), SessionCodec.decode(beforeGate).results.map { it.gate })
     }
 
     @Test

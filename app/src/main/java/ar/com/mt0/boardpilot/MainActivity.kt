@@ -825,9 +825,10 @@ fun BoardPilotApp(
                     engine.loadHypotheses(diagnosis.hypotheses, diagnosis.requests)
                     refresh(id)
                     diagnosis.needMoreEvidence?.let { sparkNotes[id] = it } ?: sparkNotes.remove(id)
-                    // Hipotesis sin mediciones utilizables: se piden aparte, sobre
+                    // Hipotesis sin mediciones utilizables (o solo con tension, que
+                    // no se ofrecen sin un chequeo previo): se piden aparte, sobre
                     // estas hipotesis, para que el tecnico siempre sepa que medir.
-                    if (diagnosis.requests.isEmpty()) {
+                    if (engine.session.pendingRequests.isEmpty()) {
                         planBusy += id
                         try {
                             val plan = runCatching { planFor(client, bmp, engine) }.getOrNull()
@@ -835,6 +836,9 @@ fun BoardPilotApp(
                             if (engines[id] === engine) {
                                 if (plan != null && plan.requests.isNotEmpty()) {
                                     engine.addRequests(plan.requests)
+                                    if (engine.session.pendingRequests.isEmpty()) {
+                                        sparkNotes[id] = strings.liveBlocked
+                                    }
                                     refresh(id)
                                 } else {
                                     (plan?.needMoreEvidence ?: diagnosis.needMoreEvidence)
@@ -875,7 +879,11 @@ fun BoardPilotApp(
                 if (engines[id] !== engine) return@launch
                 if (plan.requests.isNotEmpty()) {
                     engine.addRequests(plan.requests)
-                    sparkNotes.remove(id)
+                    if (engine.session.pendingRequests.isEmpty()) {
+                        sparkNotes[id] = strings.liveBlocked
+                    } else {
+                        sparkNotes.remove(id)
+                    }
                     refresh(id)
                     requestProbes(id, engine, bmp, key)
                 } else {
@@ -2089,6 +2097,8 @@ private fun SessionContent(
                 .maxByOrNull { it.confidence }?.fix
                 ?: strings.liveReplacement(comp?.designator ?: "?")
             Text(replacementText)
+            // Los valores los propone el modelo: manda lo impreso en la pieza original.
+            Text(strings.replacementCheck, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ReferenceCard(
                 strings, referenceBitmap, referenceBusy,
                 referenceError, onReferenceRequest,

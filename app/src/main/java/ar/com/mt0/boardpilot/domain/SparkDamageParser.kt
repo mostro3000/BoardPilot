@@ -4,15 +4,31 @@ package ar.com.mt0.boardpilot.domain
 data class DamageFinding(val description: String, val box: NormBox)
 
 /**
- * Parsea el pre-escaneo de dano (pregunta directa y unica sobre la foto
- * limpia: acerto 3/3 en las pruebas, contra ~mitad de las corridas del
- * diagnostico conjunto) y lo asigna a los candidatos SAM:
+ * Parsea el pre-escaneo de dano (pregunta directa sobre la foto limpia, entera
+ * y por sectores ampliados), une lo que vio cada pasada y lo asigna a los
+ * candidatos SAM:
  * - si el centro del dano cae dentro de un componente mapeado, ese
  *   componente recibe la marca de dano visible;
  * - si no, se crea un candidato sintetico DMG numerado sin chocar ids.
  */
 object SparkDamageParser {
     private const val MAX_FINDINGS = 3
+
+    /** Fraccion de la caja menor que deben compartir dos hallazgos para ser el mismo dano. */
+    private const val SAME_DAMAGE_OVERLAP = 0.5f
+
+    /**
+     * Sectores 2x2 con solape que se escanean ampliados, ademas de la foto entera.
+     * En las pruebas del 31 oct la zona carbonizada de una fuente paso de 1/4 a 4/4
+     * sin falsos positivos en 9 fotos; una foto entera vio algo que sus sectores no.
+     */
+    val SCAN_SECTORS = listOf(
+        NormBox(0f, 0f, 0.6f, 0.6f),
+        NormBox(0.4f, 0f, 0.6f, 0.6f),
+        NormBox(0f, 0.4f, 0.6f, 0.6f),
+        NormBox(0.4f, 0.4f, 0.6f, 0.6f),
+    )
+
     private val DMG_ID = Regex("""dmg(\d+)-spark""")
 
     fun parse(text: String): List<DamageFinding> {
@@ -29,6 +45,48 @@ object SparkDamageParser {
                 DamageFinding(description, clampBox(x, y, w, h))
             }
             .take(MAX_FINDINGS)
+    }
+
+    /** Hallazgo de un sector en coordenadas de la foto entera. */
+    fun fromSector(finding: DamageFinding, sector: NormBox): DamageFinding = finding.copy(
+        box = NormBox(
+            sector.x + finding.box.x * sector.w,
+            sector.y + finding.box.y * sector.h,
+            finding.box.w * sector.w,
+            finding.box.h * sector.h,
+        ),
+    )
+
+    /**
+     * Une las pasadas del pre-escaneo (la primera, la foto entera): hallazgos que
+     * se solapan son el mismo dano, con el texto del primero y la caja mayor (un
+     * sector puede ver solo parte de la pieza). Quedan primero los que vieron mas
+     * pasadas y, a igual cantidad, los que aparecieron antes.
+     */
+    fun merge(passes: List<List<DamageFinding>>): List<DamageFinding> {
+        class Group(var finding: DamageFinding, var seen: Int = 1)
+
+        val groups = mutableListOf<Group>()
+        passes.flatten().forEach { found ->
+            val group = groups.firstOrNull { sameDamage(it.finding.box, found.box) }
+            if (group == null) {
+                groups += Group(found)
+            } else {
+                group.seen++
+                if (area(found.box) > area(group.finding.box)) {
+                    group.finding = group.finding.copy(box = found.box)
+                }
+            }
+        }
+        return groups.sortedByDescending { it.seen }.take(MAX_FINDINGS).map { it.finding }
+    }
+
+    private fun area(box: NormBox): Float = box.w * box.h
+
+    private fun sameDamage(a: NormBox, b: NormBox): Boolean {
+        val w = minOf(a.x + a.w, b.x + b.w) - maxOf(a.x, b.x)
+        val h = minOf(a.y + a.h, b.y + b.h) - maxOf(a.y, b.y)
+        return w > 0f && h > 0f && w * h >= SAME_DAMAGE_OVERLAP * minOf(area(a), area(b))
     }
 
     /** Devuelve (dano por componente existente, componentes sinteticos). */

@@ -72,6 +72,26 @@ fun safetyGateFor(kind: MeasurementKind): SafetyGate = when (kind) {
 }
 
 /**
+ * Mediciones pendientes en orden seguro, sin depender del modelo de IA: primero
+ * las que se hacen sin tension. Las que piden enchufar van al final y se quitan
+ * si la placa no se puede energizar: hay dano visible, una medicion sin tension
+ * ya dio anormal o ninguna dio normal todavia.
+ */
+fun safeMeasurementQueue(
+    pending: List<MeasurementRequest>,
+    components: List<BoardComponent>,
+    results: List<MeasurementResult>,
+): List<MeasurementRequest> {
+    val (deEnergized, live) = pending.partition { it.gate == SafetyGate.DE_ENERGIZED }
+    val unsafe = components.any { !it.visibleDamage.isNullOrBlank() } ||
+        // Un resultado viejo, sin compuerta, cuenta como el caso mas estricto.
+        results.any { it.outcome == MeasurementOutcome.ABNORMAL && it.gate != SafetyGate.LIVE_VOLTAGE }
+    val checked = deEnergized.isNotEmpty() ||
+        results.any { it.outcome == MeasurementOutcome.NORMAL && it.gate == SafetyGate.DE_ENERGIZED }
+    return if (unsafe || !checked) deEnergized else deEnergized + live
+}
+
+/**
  * Donde apoyar una punta: un punto normalizado de la foto sobre un componente
  * (el medido u otro, como la masa del primario) y el terminal ("anodo", "+").
  * Un "?" en el terminal indica que la polaridad no se ve en la foto.
@@ -108,6 +128,8 @@ data class MeasurementResult(
     val note: String = "",
     /** Componente medido (lo completa el motor); vacio en sesiones viejas. */
     val componentId: String = "",
+    /** Compuerta de la medicion (la completa el motor); null en sesiones viejas. */
+    val gate: SafetyGate? = null,
 )
 
 /** Motivos de rechazo estables; la UI los convierte a texto localizado. */

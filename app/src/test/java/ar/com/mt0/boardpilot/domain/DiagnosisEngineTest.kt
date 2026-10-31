@@ -3,6 +3,7 @@ package ar.com.mt0.boardpilot.domain
 import ar.com.mt0.boardpilot.demo.GoldenCaseSmps
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +19,158 @@ class DiagnosisEngineTest {
         )
         engine.startMeasuring()
         return engine
+    }
+
+    private val safetyParts = listOf("c1", "c2", "c3").map {
+        BoardComponent(it, it.uppercase(), ComponentKind.OTHER, NormBox(0.1f, 0.1f, 0.1f, 0.1f))
+    }
+
+    // h1 queda lider y confirmada con un anormal, pero sin alcanzar el umbral del veredicto.
+    private val safetyHypotheses = listOf(
+        Hypothesis("h1", "t1", "c1", 0.2, ""),
+        Hypothesis("h2", "t2", "c2", 0.4, ""),
+        Hypothesis("h3", "t3", "c3", 0.4, ""),
+    )
+
+    private fun measurement(id: String, kind: MeasurementKind, target: String = "h1") = MeasurementRequest(
+        id = id,
+        componentId = "c" + target.drop(1),
+        kind = kind,
+        instruction = "i",
+        normalDescription = "n",
+        abnormalDescription = "a",
+        gate = safetyGateFor(kind),
+        targetHypothesisId = target,
+    )
+
+    private fun engineWith(
+        requests: List<MeasurementRequest>,
+        parts: List<BoardComponent> = safetyParts,
+    ): DiagnosisEngine {
+        val engine = DiagnosisEngine(DiagnosisSession(BoardType.SMPS, "s"))
+        engine.loadMapping(parts)
+        engine.loadHypotheses(safetyHypotheses, requests)
+        return engine
+    }
+
+    private fun DiagnosisEngine.answer(outcome: MeasurementOutcome) {
+        startMeasuringIfNeeded()
+        confirmSafety()
+        submitResult(MeasurementResult(session.currentRequest!!.id, outcome))
+    }
+
+    private fun DiagnosisEngine.startMeasuringIfNeeded() {
+        if (session.stage == Stage.HYPOTHESES) startMeasuring()
+    }
+
+    private val live = measurement("v1", MeasurementKind.VOLTAGE_DC, "h2")
+    private val coldA = measurement("c1", MeasurementKind.CONTINUITY)
+    private val coldB = measurement("c2", MeasurementKind.DIODE, "h3")
+
+    @Test
+    fun `las mediciones sin tension siempre van antes que las con tension`() {
+        val engine = engineWith(listOf(live, coldA, coldB))
+        assertEquals(listOf("c1", "c2", "v1"), engine.session.pendingRequests.map { it.id })
+    }
+
+    @Test
+    fun `con dano visible no se ofrece ninguna medicion con tension`() {
+        val parts = safetyParts.map { if (it.id == "c3") it.copy(visibleDamage = "Quemado") else it }
+        val engine = engineWith(listOf(live, coldA), parts)
+        assertEquals(listOf("c1"), engine.session.pendingRequests.map { it.id })
+    }
+
+    @Test
+    fun `una falla medida sin tension quita las mediciones con tension pendientes`() {
+        val engine = engineWith(listOf(coldA, coldB, live))
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        assertEquals(Stage.MEASURING, engine.session.stage)
+        assertEquals(listOf("c2"), engine.session.pendingRequests.map { it.id })
+    }
+
+    @Test
+    fun `un chequeo sin tension correcto y sin fallas habilita la medicion con tension`() {
+        val engine = engineWith(listOf(coldA, live))
+        engine.answer(MeasurementOutcome.NORMAL)
+        assertEquals(listOf("v1"), engine.session.pendingRequests.map { it.id })
+    }
+
+    @Test
+    fun `una lectura dudosa sin tension no habilita enchufar`() {
+        val engine = engineWith(listOf(coldA, live))
+        engine.answer(MeasurementOutcome.UNCLEAR)
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        assertTrue(engine.session.pendingRequests.isEmpty())
+    }
+
+    @Test
+    fun `sin chequeo previo no se cargan mediciones con tension y un plan solo con tension no pasa`() {
+        val engine = engineWith(listOf(live))
+        assertTrue(engine.session.pendingRequests.isEmpty())
+        engine.addRequests(listOf(measurement("v2", MeasurementKind.VOLTAGE_DC, "h3")))
+        assertTrue(engine.session.pendingRequests.isEmpty())
+        // Con un chequeo sin tension en el mismo plan, si: y va primero.
+        engine.addRequests(listOf(measurement("v2", MeasurementKind.VOLTAGE_DC, "h3"), coldA))
+        assertEquals(listOf("c1", "v2"), engine.session.pendingRequests.map { it.id })
+    }
+
+    @Test
+    fun `una falla medida sin tension tambien frena los planes siguientes`() {
+        val engine = engineWith(listOf(coldA))
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        // h1 lidera confirmada: queda el veredicto; igual se comprueba la regla sobre otra sesion.
+        val session = engine.session.copy(stage = Stage.HYPOTHESES)
+        val resumed = DiagnosisEngine(session)
+        resumed.addRequests(listOf(measurement("v2", MeasurementKind.VOLTAGE_DC, "h3")))
+        assertTrue(resumed.session.pendingRequests.isEmpty())
+    }
+
+    @Test
+    fun `una lectura anormal con tension no frena las siguientes con tension`() {
+        val engine = engineWith(listOf(coldA, live, measurement("v2", MeasurementKind.VOLTAGE_DC, "h3")))
+        engine.answer(MeasurementOutcome.NORMAL)
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        assertEquals(listOf("v2"), engine.session.pendingRequests.map { it.id })
+    }
+
+    @Test
+    fun `una sesion guardada con la medicion con tension primero se corrige al cargarla`() {
+        val saved = DiagnosisSession(
+            boardType = BoardType.SMPS,
+            symptom = "s",
+            components = safetyParts,
+            hypotheses = safetyHypotheses,
+            pendingRequests = listOf(live, coldA),
+            safetyConfirmedForCurrent = true,
+            stage = Stage.MEASURING,
+        )
+        val engine = DiagnosisEngine(saved)
+        assertEquals(listOf("c1", "v1"), engine.session.pendingRequests.map { it.id })
+        // La compuerta confirmada era la de otra medicion.
+        assertFalse(engine.session.safetyConfirmedForCurrent)
+    }
+
+    @Test
+    fun `un anormal viejo sin compuerta cuenta como falla y sin medicion pendiente no se queda midiendo`() {
+        val saved = DiagnosisSession(
+            boardType = BoardType.SMPS,
+            symptom = "s",
+            components = safetyParts,
+            hypotheses = safetyHypotheses,
+            pendingRequests = listOf(live),
+            results = listOf(MeasurementResult("c0", MeasurementOutcome.ABNORMAL, "n", "c1")),
+            stage = Stage.MEASURING,
+        )
+        val engine = DiagnosisEngine(saved)
+        assertTrue(engine.session.pendingRequests.isEmpty())
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+    }
+
+    @Test
+    fun `el resultado guarda la compuerta de la medicion`() {
+        val engine = engineWith(listOf(coldA, live))
+        engine.answer(MeasurementOutcome.NORMAL)
+        assertEquals(SafetyGate.DE_ENERGIZED, engine.session.results.single().gate)
     }
 
     @Test

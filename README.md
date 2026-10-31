@@ -32,9 +32,9 @@ for another measurement or photo instead of inventing an answer.
 2. **Map (SAM 3.1)** — components are segmented by physical shape ("cylindrical
    component", "yellow rectangular block", …), filtered by confidence and de-duplicated,
    and drawn as an interactive overlay on the photo.
-3. **Damage pre-scan (Muse Spark)** — a dedicated pass over the clean photo looks for
-   burnt, blown or bulging parts. Damage that SAM did not box becomes a synthetic
-   candidate (`DMG 1`) that hypotheses and measurements can point to.
+3. **Damage pre-scan (Muse Spark)** — dedicated passes over the clean photo, whole and in
+   four magnified sectors, look for burnt, blown or bulging parts. Damage that SAM did not
+   box becomes a synthetic candidate (`DMG 1`) that hypotheses and measurements can point to.
 4. **Hypotheses (Muse Spark)** — the annotated photo, the candidate list (JSON with
    stable ids and normalized boxes) and the symptom produce up to four ranked
    hypotheses, each with its confidence, rationale and the concrete fix if confirmed
@@ -103,7 +103,8 @@ documentation only before it); commit dates are the evidence.
   the repository); the verdict and the board map name the component type in the app's
   language.
 - **Oct 31** — opt-in Contributor mode for Muse Spark, behind an explicit notice (Standard
-  stays the default); privacy summary in the app's About screen.
+  stays the default); privacy summary in the app's About screen; the code now decides when a
+  board may be plugged in; prompts tightened against claims the photo does not support.
 
 ## Try it
 
@@ -184,6 +185,13 @@ resistance and diode tests, and an explicit high-voltage warning before any meas
 on a powered unit. The gate is derived from the measurement kind by the code, never by
 the model, and AC/mains measurements are never guided.
 
+The code also decides when a board may be plugged in. Measurements without power always
+come first, and live ones are withheld while there is visible damage, after a fault was
+measured without power, or until a check without power has come out right. The live
+gate spells out the procedure: attach the probes unplugged, plug in without touching the
+board, read and unplug. The verdict reminds the technician to read the original part
+before buying: the model's suggested ratings never replace what is printed on it.
+
 ## Privacy and your key
 
 This section is BoardPilot's privacy policy; the app shows a summary in its About screen.
@@ -199,8 +207,8 @@ key you load on your own device. Meta handles them under its
 in this repository.
 
 **Muse Spark mode:** in **Standard** mode, the default, Meta does not use this content to
-train its models. **Contributor** mode costs much less, but Meta may use what you send and
-what it answers to train its models, including earlier photos and text from a repair you
+train its models. **Contributor** mode costs much less, but it can take twice as long and Meta may use what you
+send and what it answers to train its models, including earlier photos and text from a repair you
 continue in this mode. It stays off unless you turn it on in Settings and accept the
 notice. In that mode you must not send personal or confidential information (check that
 photos show no names or customer labels), and you should use it only if Meta's terms allow

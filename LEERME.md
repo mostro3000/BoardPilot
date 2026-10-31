@@ -31,9 +31,10 @@ medición o foto en vez de inventar.
 2. **Mapeo (SAM 3.1)** — los componentes se segmentan por forma física ("cylindrical
    component", "yellow rectangular block", …), se filtran por confianza, se eliminan
    duplicados y se dibujan como overlay interactivo sobre la foto.
-3. **Pre-escaneo de daño (Muse Spark)** — una pasada dedicada sobre la foto limpia busca
-   piezas quemadas, explotadas o hinchadas. El daño que SAM no encuadró se convierte en un
-   candidato sintético (`DMG 1`) al que pueden apuntar hipótesis y mediciones.
+3. **Pre-escaneo de daño (Muse Spark)** — pasadas dedicadas sobre la foto limpia, entera y en
+   cuatro sectores ampliados, buscan piezas quemadas, explotadas o hinchadas. El daño que SAM
+   no encuadró se convierte en un candidato sintético (`DMG 1`) al que pueden apuntar
+   hipótesis y mediciones.
 4. **Hipótesis (Muse Spark)** — la foto anotada, la lista de candidatos (JSON con ids
    estables y cajas normalizadas) y el síntoma producen hasta cuatro hipótesis ordenadas,
    cada una con su confianza, su fundamento y qué reemplazar si se confirma (tipo de
@@ -103,7 +104,8 @@ son la evidencia.
   fuera del repositorio); el veredicto y el mapa nombran el tipo de componente en el idioma
   de la app.
 - **31 oct** — modo Contributor opcional para Muse Spark, con un aviso explícito (Estándar
-  sigue por defecto); resumen de privacidad en Acerca de.
+  sigue por defecto); resumen de privacidad en Acerca de; ahora el código decide cuándo se puede
+  enchufar una placa; prompts más estrictos con lo que la foto no respalda.
 
 ## Probarla
 
@@ -185,6 +187,13 @@ resistencia y diodo, y advertencia explícita de alta tensión antes de cualquie
 con el equipo energizado. La compuerta la deriva el código del tipo de medición, nunca el
 modelo, y nunca se guían mediciones en alterna.
 
+El código también decide cuándo se puede enchufar una placa. Las mediciones sin tensión
+siempre van primero, y las con tensión no se ofrecen si hay daño visible, si ya se midió
+una falla sin tensión o mientras ningún chequeo sin tensión haya dado bien. La compuerta
+con tensión indica el procedimiento: fijar las puntas con el equipo desenchufado, enchufar
+sin tocar la placa, leer y desenchufar. El veredicto recuerda leer la pieza original antes
+de comprar: los valores que sugiere el modelo nunca reemplazan lo que está impreso en ella.
+
 ## Privacidad y tu clave
 
 Esta sección es la política de privacidad de BoardPilot; la app muestra un resumen en Acerca
@@ -201,8 +210,8 @@ cargás en tu dispositivo. Meta los trata según sus
 en este repositorio.
 
 **Modo de Muse Spark:** en modo **Estándar**, el de por defecto, Meta no usa este contenido
-para entrenar sus modelos. El modo **Contributor** cuesta mucho menos, pero Meta puede usar
-lo que envíes y lo que responda para entrenar sus modelos, también fotos y textos anteriores
+para entrenar sus modelos. El modo **Contributor** cuesta mucho menos, pero puede tardar el doble y Meta
+puede usar lo que envíes y lo que responda para entrenar sus modelos, también fotos y textos anteriores
 de una reparación que sigas en este modo. Queda apagado salvo que lo actives en Configuración
 y aceptes el aviso. En ese modo no podés enviar datos personales ni confidenciales (revisá
 que las fotos no muestren nombres ni etiquetas de clientes), y conviene usarlo solo si las

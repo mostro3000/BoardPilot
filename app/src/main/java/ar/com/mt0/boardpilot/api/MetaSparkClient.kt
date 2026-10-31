@@ -11,18 +11,23 @@ import ar.com.mt0.boardpilot.domain.DamageFinding
 import ar.com.mt0.boardpilot.domain.Hypothesis
 import ar.com.mt0.boardpilot.domain.MeasurementRequest
 import ar.com.mt0.boardpilot.domain.MeasurementResult
+import ar.com.mt0.boardpilot.domain.NormBox
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
 import ar.com.mt0.boardpilot.domain.SparkCandidates
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
 import ar.com.mt0.boardpilot.domain.SparkMode
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.roundToInt
 
 /**
  * Cliente directo de Muse Spark 1.3 contra Meta Model API (sin servidor
@@ -43,16 +48,40 @@ class MetaSparkClient(
     private val mode: SparkMode = SparkMode.DEFAULT,
 ) {
     /**
-     * Pre-escaneo dedicado de dano visible sobre la foto LIMPIA. Pregunta
-     * unica y directa (en las pruebas acerto siempre, a diferencia de la
-     * deteccion incidental dentro del diagnostico completo): devuelve los
-     * hallazgos con caja normalizada, ya validados por el dominio.
+     * Pre-escaneo dedicado de dano visible sobre la foto LIMPIA, con una pregunta
+     * directa: la foto entera y sus sectores ampliados, en paralelo (tarda como una
+     * sola pasada). Una pasada que falla no frena a las demas. Devuelve los hallazgos
+     * con caja normalizada, ya validados y unidos por el dominio.
      */
     suspend fun scanDamage(
         bitmap: Bitmap,
         language: AppLanguage,
-    ): List<DamageFinding> = withContext(Dispatchers.IO) {
+    ): List<DamageFinding> = coroutineScope {
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
+        val whole = async(Dispatchers.IO) { scanPass(bitmap, languageName) }
+        val sectors = SparkDamageParser.SCAN_SECTORS.map { sector ->
+            async(Dispatchers.IO) {
+                runCatching { sectorBitmap(bitmap, sector) }.getOrNull()
+                    ?.let { scanPass(it, languageName) }.orEmpty()
+                    .map { SparkDamageParser.fromSector(it, sector) }
+            }
+        }
+        SparkDamageParser.merge((listOf(whole) + sectors).awaitAll())
+    }
+
+    /** Recorte de un sector; las fotos chicas se amplian para que se vea el detalle. */
+    private fun sectorBitmap(bitmap: Bitmap, sector: NormBox): Bitmap {
+        val x = (sector.x * bitmap.width).toInt()
+        val y = (sector.y * bitmap.height).toInt()
+        val w = (sector.w * bitmap.width).toInt().coerceIn(1, bitmap.width - x)
+        val h = (sector.h * bitmap.height).toInt().coerceIn(1, bitmap.height - y)
+        val crop = Bitmap.createBitmap(bitmap, x, y, w, h)
+        val scale = SECTOR_SIDE.toFloat() / maxOf(w, h)
+        if (scale <= 1f) return crop
+        return Bitmap.createScaledBitmap(crop, (w * scale).roundToInt(), (h * scale).roundToInt(), true)
+    }
+
+    private fun scanPass(bitmap: Bitmap, languageName: String): List<DamageFinding> = runCatching {
         val body = JSONObject().apply {
             put("model", mode.modelId)
             put("max_tokens", 6000)
@@ -76,7 +105,7 @@ class MetaSparkClient(
                 }))
         }
         SparkDamageParser.parse(chat(body))
-    }
+    }.getOrDefault(emptyList())
 
     /** Devuelve el texto crudo del asistente (JSON a validar en el dominio). */
     suspend fun diagnose(
@@ -362,6 +391,9 @@ class MetaSparkClient(
     }
 
     companion object {
+        /** Lado mayor al que se amplia un sector de una foto chica. */
+        private const val SECTOR_SIDE = 1024
+
         // Mismo prompt validado por tools/smoke_spark.py (mantener en sync).
         private const val DAMAGE_PROMPT = """Look at this electronic board photo and scan the ENTIRE board for visible physical damage ONLY: burnt, charred or blackened components or PCB areas; bulging, leaking or exploded capacitors; cracked or melted parts; heavy corrosion or burnt traces.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
@@ -374,13 +406,14 @@ Reply with ONLY one valid JSON object in this exact shape, no prose and no code 
 {"hypotheses":[{"id":"h1","title":"...","componentId":"...","confidence":0.4,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"damages":[{"componentId":"...","damage":"..."}],"unmappedDamage":{"description":"...","x":0.0,"y":0.0,"w":0.0,"h":0.0},"needMoreEvidence":"","boardType":"..."}
 Rules:
 - FIRST scan the ENTIRE photo for visible damage: burnt/charred/blackened components or PCB areas, bulging or leaking capacitors, cracked or melted parts, heavy corrosion. For every candidate that is visibly damaged add a "damages" entry describing it. A visibly burnt or exploded component is the strongest evidence there is: rank its hypothesis FIRST with the highest confidence and target it with the first measurement.
+- Claim only what the clean photo really shows. Blur, shadows, reflections, glue, flux, dust, dark packages and the camera angle are not damage. Never write that a part is burnt, deformed, cracked or bulging unless the candidate list marks it with visibleDamage or you report it in "damages" or "unmappedDamage". A hypothesis without a damage mark is a suspicion from the symptom: say that in its rationale, do not say the part looks undamaged (a photo cannot rule it out), and keep its confidence at 0.6 or less.
 - If visible damage has NO candidate box around it, report it in "unmappedDamage" with a tight normalized box (x,y,w,h in 0..1) around the damaged component/area; in that case you may reference that region as componentId "dmg1-spark" in hypotheses and measurements. If there is no unmapped damage, set "unmappedDamage" to null.
-- componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts; never invent silkscreen reference designators.
+- componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts and only tell the rough shape of the box (CYL a cylinder, RECT a rectangular block, not a rectifier): work out what each part really is from the photo. Never invent silkscreen reference designators.
 BOARD_RULES
-- For each hypothesis, "fix" says what to replace or repair if it is confirmed, written as a direct action without restating the condition (for example "Replace with ..."), with a generic replacement spec when it applies (part type, key ratings, package and a common part number as an example).
+- For each hypothesis, "fix" says what to replace or repair if it is confirmed, written as a direct action without restating the condition (for example "Replace with ..."). Give the part type and quote every marking you can read on that part in the photo, with the value or rating it states. Only when no marking is readable, give no numbers: say to use the same value and an equal or higher voltage rating, read from the original part or a schematic. Never suggest a lower rating than the original, and name a package or part number only if you can see it.
 - Whenever you give hypotheses, also give between 1 and 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
-- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
-- Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
+- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits, any part marked in kV). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
+- Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged, and they all go before any VOLTAGE_DC. Give a VOLTAGE_DC only when de-energized checks cannot tell the hypotheses apart, never as the only measurement and never if the photo shows damage. Use the SECONDARY zone whenever it can answer; PRIMARY only when nothing else can. Its instruction starts with the condition to plug the unit in (the de-energized checks found no short, naming what was checked) and says to attach the probes while unplugged, plug in without touching the board, read and unplug.
 - If the photo or candidates are insufficient, return empty arrays and explain in needMoreEvidence what photo/measurement you need.
 - Faults that a multimeter cannot confirm or fix (firmware, BGA chips, the display panel itself) are not hypotheses: if they are likely, say so in needMoreEvidence with the next step (for example reflashing or replacing the module), even when you also give hypotheses.
 - All user-visible strings (title, rationale, fix, instruction, normal, abnormal, damage, description, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
@@ -393,8 +426,8 @@ Reply with ONLY one valid JSON object in this exact shape, no prose and no code 
 Rules:
 - Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list and one componentId exactly as in the candidate list.
 - kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.
-- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
-- Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged; voltage measurements only when essential and with explicit caution in the instruction.
+- zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits, any part marked in kV). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
+- Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged, and they all go before any VOLTAGE_DC. Give a VOLTAGE_DC only when de-energized checks cannot tell the hypotheses apart, and never if a candidate has visibleDamage, a measurement already done came out ABNORMAL or none came out NORMAL with the unit unplugged yet: then the board stays unplugged, so ask for de-energized checks only. Use the SECONDARY zone whenever it can answer; PRIMARY only when nothing else can. Its instruction starts with the condition to plug the unit in (the de-energized checks found no short, naming what was checked) and says to attach the probes while unplugged, plug in without touching the board, read and unplug.
 - If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
 - All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
 

@@ -68,6 +68,7 @@ interface AppStrings {
     fun firstMeasurement(kind: String, designator: String): String
     val noMeasurementsLive: String
     val measuredNoVerdict: String
+    val liveBlocked: String
     val askMeasurements: String
     val askingMeasurements: String
     val askFailed: String
@@ -81,6 +82,7 @@ interface AppStrings {
     val abnormalDescLabel: String
     val confirmSafety: String
     val verdictPrefix: String
+    val replacementCheck: String
     val alreadyReplaced: String
     val verifyQuestion: String
     val yesOn: String
@@ -230,7 +232,7 @@ object EsStrings : AppStrings {
     override val sparkModeStandardHint = "Meta no entrena sus modelos con lo que envíes. Contributor cuesta mucho menos, pero Meta puede entrenar con tus fotos y textos."
     override val sparkModeContributorHint = "⚠ Modo Contributor activo: Meta puede entrenar sus modelos con tus fotos, síntomas y mediciones. No envíes datos personales ni confidenciales."
     override val contributorDialogTitle = "¿Activar el modo Contributor?"
-    override val contributorDialogText = "Muse Spark cuesta mucho menos, pero Meta puede usar para entrenar sus modelos lo que envíes y lo que responda: fotos de placas, síntomas y mediciones, también de reparaciones ya empezadas si las seguís en este modo.\n\nNo envíes datos personales ni confidenciales: revisá que las fotos no muestren nombres ni etiquetas de clientes.\n\nUsalo solo si las condiciones de Meta lo permiten en tu país. Podés volver a Estándar cuando quieras, pero lo ya enviado no se puede retirar desde la app."
+    override val contributorDialogText = "Muse Spark cuesta mucho menos, pero puede tardar el doble y Meta puede usar para entrenar sus modelos lo que envíes y lo que responda: fotos de placas, síntomas y mediciones, también de reparaciones ya empezadas si las seguís en este modo.\n\nNo envíes datos personales ni confidenciales: revisá que las fotos no muestren nombres ni etiquetas de clientes.\n\nUsalo solo si las condiciones de Meta lo permiten en tu país. Podés volver a Estándar cuando quieras, pero lo ya enviado no se puede retirar desde la app."
     override val contributorAccept = "Activar"
     override val contributorCancel = "Cancelar"
     override val contributorReminder = "⚠ Modo Contributor: Meta puede entrenar sus modelos con esta foto y estos textos. No incluyas datos personales ni confidenciales."
@@ -265,6 +267,7 @@ object EsStrings : AppStrings {
     override val askingMeasurements = "Muse Spark está eligiendo qué medir..."
     override val askFailed = "No se pudieron pedir las mediciones. Revisá la conexión y tu clave, y reintentá."
     override val startOver = "Empezar de nuevo"
+    override val liveBlocked = "solo propuso mediciones con tensión. BoardPilot no las guía hasta tener un chequeo sin tensión correcto, ni con daño visible o una falla sin reparar. Pedí otras mediciones o reparalo primero."
     override val fixLabel = "Si se confirma"
     override val measurementTitle = "Medición"
     override val normalLabel = "Normal"
@@ -274,6 +277,7 @@ object EsStrings : AppStrings {
     override val abnormalDescLabel = "Anormal"
     override val confirmSafety = "Confirmo la seguridad para medir"
     override val verdictPrefix = "Veredicto: reemplazar"
+    override val replacementCheck = "Antes de comprar, leé lo impreso en la pieza original: el reemplazo va con el mismo valor y tensión igual o mayor."
     override val alreadyReplaced = "Ya reemplacé el componente"
     override val verifyQuestion = "Verificación: energizá el equipo con precaución. ¿Encendió?"
     override val yesOn = "Sí, encendió"
@@ -381,9 +385,9 @@ object EsStrings : AppStrings {
         }
         SafetyGate.LIVE_VOLTAGE -> when (zone) {
             HazardZone.PRIMARY ->
-                "Medición CON TENSIÓN en el lado de red (más de 300 V): riesgo de descarga mortal. Una sola mano, puntas aisladas y sin tocar la placa."
+                "Medición CON TENSIÓN en el lado de red (más de 300 V): riesgo de descarga mortal. Con el equipo desenchufado y descargado, fijá las puntas con pinzas aisladas. Enchufá sin tocar la placa, leé, desenchufá y descargá de nuevo antes de tocar. Si tenés, usá transformador de aislamiento o lámpara en serie."
             HazardZone.SECONDARY ->
-                "Medición CON TENSIÓN en baja tensión, con el equipo enchufado: no toques el lado de red. Una sola mano y puntas aisladas."
+                "Medición CON TENSIÓN en baja tensión: el lado de red queda energizado y no se toca. Con el equipo desenchufado, fijá las puntas con pinzas aisladas. Enchufá sin tocar la placa, leé y desenchufá."
             HazardZone.HIGH_VOLTAGE ->
                 "Nunca se guían mediciones con tensión en zonas de alta tensión."
         }
@@ -484,7 +488,7 @@ object EnStrings : AppStrings {
     override val sparkModeStandardHint = "Meta does not train its models on what you send. Contributor costs much less, but Meta may train on your photos and text."
     override val sparkModeContributorHint = "⚠ Contributor mode is on: Meta may train its models on your photos, symptoms and measurements. Do not send personal or confidential information."
     override val contributorDialogTitle = "Turn on Contributor mode?"
-    override val contributorDialogText = "Muse Spark costs much less, but Meta may use what you send and what it answers to train its models: board photos, symptoms and measurements, including from repairs you already started if you continue them in this mode.\n\nDo not send personal or confidential information: check that photos show no names or customer labels.\n\nUse it only if Meta's terms allow it in your country. You can go back to Standard at any time, but what was already sent cannot be withdrawn from the app."
+    override val contributorDialogText = "Muse Spark costs much less, but it can take twice as long and Meta may use what you send and what it answers to train its models: board photos, symptoms and measurements, including from repairs you already started if you continue them in this mode.\n\nDo not send personal or confidential information: check that photos show no names or customer labels.\n\nUse it only if Meta's terms allow it in your country. You can go back to Standard at any time, but what was already sent cannot be withdrawn from the app."
     override val contributorAccept = "Turn on"
     override val contributorCancel = "Cancel"
     override val contributorReminder = "⚠ Contributor mode: Meta may train its models on this photo and this text. Do not include personal or confidential information."
@@ -519,6 +523,7 @@ object EnStrings : AppStrings {
     override val askingMeasurements = "Muse Spark is choosing what to measure..."
     override val askFailed = "Could not get measurements. Check your connection and key, then retry."
     override val startOver = "Start over"
+    override val liveBlocked = "it only proposed live measurements. BoardPilot does not guide them until a check without power has come out right, nor while there is visible damage or an unrepaired fault. Ask for other measurements or repair it first."
     override val fixLabel = "If confirmed"
     override val measurementTitle = "Measurement"
     override val normalLabel = "Normal"
@@ -528,6 +533,7 @@ object EnStrings : AppStrings {
     override val abnormalDescLabel = "Abnormal"
     override val confirmSafety = "I confirm it is safe to measure"
     override val verdictPrefix = "Verdict: replace"
+    override val replacementCheck = "Before buying, read what is printed on the original part: the replacement needs the same value and an equal or higher voltage rating."
     override val alreadyReplaced = "I already replaced the component"
     override val verifyQuestion = "Verification: power the unit on with care. Did it turn on?"
     override val yesOn = "Yes, it works"
@@ -635,9 +641,9 @@ object EnStrings : AppStrings {
         }
         SafetyGate.LIVE_VOLTAGE -> when (zone) {
             HazardZone.PRIMARY ->
-                "LIVE measurement on the mains side (over 300 V): lethal shock risk. One hand, insulated probes and do not touch the board."
+                "LIVE measurement on the mains side (over 300 V): lethal shock risk. With the unit unplugged and discharged, attach the probes with insulated clips. Plug it in without touching the board, read, unplug and discharge again before touching. If you have one, use an isolation transformer or a series lamp."
             HazardZone.SECONDARY ->
-                "LIVE low-voltage measurement with the unit plugged in: do not touch the mains side. One hand and insulated probes."
+                "LIVE low-voltage measurement: the mains side stays energized, do not touch it. With the unit unplugged, attach the probes with insulated clips. Plug it in without touching the board, read and unplug."
             HazardZone.HIGH_VOLTAGE ->
                 "Live measurements are never guided in high-voltage zones."
         }

@@ -60,7 +60,7 @@ object SessionCodec {
             line(
                 listOf(
                     enc(result.requestId), result.outcome.name, enc(result.note),
-                    enc(result.componentId),
+                    enc(result.componentId), result.gate?.name ?: NULL_TOKEN,
                 ).joinToString("|"),
             )
         }
@@ -120,13 +120,14 @@ object SessionCodec {
             )
         }
         val results = List(cursor.nextCount()) {
-            // Y los resultados, 3 (sin el componente medido).
-            val fields = cursor.nextFields(3, 4)
+            // Y los resultados, 3 (sin el componente medido) o 4 (sin la compuerta).
+            val fields = cursor.nextFields(3, 4, 5)
             MeasurementResult(
                 requestId = dec(fields[0]),
                 outcome = MeasurementOutcome.valueOf(fields[1]),
                 note = dec(fields[2]),
                 componentId = fields.getOrNull(3)?.let(::dec).orEmpty(),
+                gate = fields.getOrNull(4)?.takeIf { it != NULL_TOKEN }?.let(SafetyGate::valueOf),
             )
         }
         return DiagnosisSession(

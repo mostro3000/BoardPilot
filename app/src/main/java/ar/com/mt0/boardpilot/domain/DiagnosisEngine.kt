@@ -5,6 +5,8 @@ package ar.com.mt0.boardpilot.domain
  *
  * Reglas centrales:
  * - Nunca se registra una medicion sin confirmar antes su compuerta de seguridad.
+ * - Las mediciones con tension solo se ofrecen cuando la placa se puede enchufar
+ *   ([safeMeasurementQueue]), tambien en sesiones guardadas por versiones anteriores.
  * - Un veredicto exige evidencia de medicion real que confirme la hipotesis lider
  *   y confianza >= umbral; si la evidencia no alcanza, se pide mas evidencia.
  */
@@ -12,7 +14,7 @@ class DiagnosisEngine(
     initial: DiagnosisSession,
     private val verdictThreshold: Double = 0.80,
 ) {
-    var session: DiagnosisSession = initial
+    var session: DiagnosisSession = initial.withSafeQueue()
         private set
 
     sealed interface SubmitResult {
@@ -62,7 +64,7 @@ class DiagnosisEngine(
         require(hypotheses.isNotEmpty()) { "Se requiere al menos una hipotesis" }
         session = session.copy(
             hypotheses = normalize(hypotheses),
-            pendingRequests = requests,
+            pendingRequests = safeMeasurementQueue(requests, session.components, session.results),
             stage = Stage.HYPOTHESES,
         )
     }
@@ -76,7 +78,11 @@ class DiagnosisEngine(
         val known = session.hypotheses.map { it.id }.toSet()
         val fresh = requests.filter { it.targetHypothesisId in known }
         if (fresh.isNotEmpty()) {
-            session = session.copy(pendingRequests = session.pendingRequests + fresh)
+            session = session.copy(
+                pendingRequests = safeMeasurementQueue(
+                    session.pendingRequests + fresh, session.components, session.results,
+                ),
+            )
         }
     }
 
@@ -123,18 +129,22 @@ class DiagnosisEngine(
             return SubmitResult.Rejected(RejectReason.SAFETY_NOT_CONFIRMED)
         }
         val updated = applyEvidence(session.hypotheses, current, result.outcome)
-        val nextStage = decideStage(updated, session.pendingRequests.drop(1))
+        // El resultado guarda que se midio, sobre que componente y con que compuerta:
+        // para pedir las siguientes mediciones, para marcarlo en el mapa de evidencia
+        // y para saber si la placa ya se puede enchufar.
+        val results = session.results + result.copy(
+            note = result.note.ifBlank { "${current.kind} ${current.componentId}: ${current.instruction}" },
+            componentId = current.componentId,
+            gate = current.gate,
+        )
+        val remaining = safeMeasurementQueue(session.pendingRequests.drop(1), session.components, results)
+        val nextStage = decideStage(updated, remaining)
         val leader = updated.firstOrNull()
         session = session.copy(
             hypotheses = updated,
-            pendingRequests = session.pendingRequests.drop(1),
+            pendingRequests = remaining,
             safetyConfirmedForCurrent = false,
-            // El resultado guarda que se midio y sobre que componente: para pedir las
-            // siguientes mediciones y para marcarlo en el mapa de evidencia.
-            results = session.results + result.copy(
-                note = result.note.ifBlank { "${current.kind} ${current.componentId}: ${current.instruction}" },
-                componentId = current.componentId,
-            ),
+            results = results,
             stage = nextStage,
             verdictComponentId = if (nextStage == Stage.VERDICT) leader?.componentId else null,
         )
@@ -154,6 +164,17 @@ class DiagnosisEngine(
             // No encendio: vuelve a medicion si el playbook tenia pasos, o queda en veredicto.
             session.copy(stage = Stage.VERDICT, verdictComponentId = session.verdictComponentId)
         }
+    }
+
+    /** Sesion cargada con mediciones de antes de esta regla: la compuerta se reconfirma si cambia la actual. */
+    private fun DiagnosisSession.withSafeQueue(): DiagnosisSession {
+        val queue = safeMeasurementQueue(pendingRequests, components, results)
+        if (queue == pendingRequests) return this
+        return copy(
+            pendingRequests = queue,
+            safetyConfirmedForCurrent = safetyConfirmedForCurrent && queue.firstOrNull() == currentRequest,
+            stage = if (stage == Stage.MEASURING && queue.isEmpty()) Stage.HYPOTHESES else stage,
+        )
     }
 
     private fun decideStage(
