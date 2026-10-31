@@ -219,7 +219,7 @@ puede tardar más del doble y Meta puede usar lo que envíes y lo que responda p
 modelos, también fotos y textos anteriores de una reparación que sigas en este modo. Nada se envía
 en este modo hasta que aceptes un aviso, que aparece antes del primer análisis. Ahí, o después en
 Configuración, podés elegir el modo **Estándar**, donde Meta no usa este contenido para entrenar sus
-modelos. En modo Contributor no podés enviar datos personales ni confidenciales (revisá que las
+modelos. Acerca de dice qué modo está configurado y advierte si es Contributor. En modo Contributor no podés enviar datos personales ni confidenciales (revisá que las
 fotos no muestren nombres ni etiquetas de clientes), y conviene usarlo solo si las condiciones de
 Meta lo permiten en tu país. SAM 3.1 y Muse Image no tienen variante Contributor.
 

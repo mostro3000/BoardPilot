@@ -214,8 +214,8 @@ in this repository.
 more than twice as long and Meta may use what you send and what it answers to train its models,
 including earlier photos and text from a repair you continue in this mode. Nothing is sent in this
 mode until you accept a notice, shown before your first analysis. There, or later in Settings, you
-can choose **Standard** mode, where Meta does not use this content to train its models. In
-Contributor mode you must not send personal or confidential information (check that photos show
+can choose **Standard** mode, where Meta does not use this content to train its models. The
+About screen says which mode is set and warns while it is Contributor. In Contributor mode you must not send personal or confidential information (check that photos show
 no names or customer labels), and you should use it only if Meta's terms allow it in your country.
 SAM 3.1 and Muse Image have no Contributor variant.
 

@@ -1118,7 +1118,7 @@ fun BoardPilotApp(
         }
 
         if (showAbout) {
-            AboutContent(strings, permissionTick, ::onAboutPermissionTap)
+            AboutContent(strings, permissionTick, sparkMode, ::onAboutPermissionTap)
         } else if (showSettings) {
             Text(strings.settingsTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             // Sin clave, la clave primero: sin ella la app no diagnostica.
@@ -1710,6 +1710,7 @@ private fun EyeIcon(crossed: Boolean, description: String) {
 private fun AboutContent(
     strings: AppStrings,
     permissionTick: Int,
+    sparkMode: SparkMode,
     onPermissionTap: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -1743,6 +1744,14 @@ private fun AboutContent(
 
     Text(strings.aboutTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold)
     Text(strings.appTagline)
+    // Con Contributor configurado, Meta puede entrenar con lo que se envia.
+    if (sparkMode == SparkMode.CONTRIBUTOR) {
+        Text(
+            strings.sparkModeContributorHint,
+            color = MaterialTheme.colorScheme.error,
+            fontWeight = FontWeight.Bold,
+        )
+    }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("${strings.nameLabel}: BoardPilot")
@@ -1750,6 +1759,12 @@ private fun AboutContent(
             Text("${strings.versionLabel}: $versionText")
             Text("${strings.packageLabel}: ${context.packageName}")
             Text("${strings.licenseLabel}: $APP_LICENSE")
+            Text(
+                "${strings.sparkModeTitle}: " + when (sparkMode) {
+                    SparkMode.STANDARD -> strings.sparkModeStandard
+                    SparkMode.CONTRIBUTOR -> strings.sparkModeContributor
+                },
+            )
         }
     }
     Card(Modifier.fillMaxWidth()) {
