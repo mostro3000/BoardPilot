@@ -65,6 +65,9 @@ object SessionCodec {
                 ).joinToString("|"),
             )
         }
+
+        line(session.extraPhotos.size.toString())
+        session.extraPhotos.forEach { line(encNullable(it.ifBlank { null })) }
     }.trimEnd()
 
     fun decode(text: String): DiagnosisSession {
@@ -132,6 +135,12 @@ object SessionCodec {
                 gate = fields.getOrNull(4)?.takeIf { it != NULL_TOKEN }?.let(SafetyGate::valueOf),
             )
         }
+        // Las sesiones guardadas antes de las fotos sumadas terminan en los resultados.
+        val extraPhotos = if (cursor.hasNext()) {
+            List(cursor.nextCount()) { decNullable(cursor.next()).orEmpty() }
+        } else {
+            emptyList()
+        }
         return DiagnosisSession(
             boardType = boardType,
             symptom = symptom,
@@ -143,6 +152,7 @@ object SessionCodec {
             stage = stage,
             verdictComponentId = verdict,
             replacement = replacement,
+            extraPhotos = extraPhotos,
         )
     }
 
@@ -189,6 +199,8 @@ object SessionCodec {
 
     private class Cursor(private val lines: List<String>) {
         private var index = 0
+
+        fun hasNext(): Boolean = index < lines.size
 
         fun next(): String {
             require(index < lines.size) { "sesion truncada" }

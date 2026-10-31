@@ -54,7 +54,10 @@ for another measurement or photo instead of inventing an answer.
    to measure now, each hypothesis' % and the evidence so far (✓ ✗ ?).
 6. **Re-plan (Muse Spark)** — if the measurements run out without a verdict, the agent
    asks for the next ones, passing the hypotheses and everything already measured with
-   its result.
+   its result. When the first hypotheses are ruled out it can add new ones, and the
+   technician can add up to four more photos (a closer view, the solder side) for it to
+   keep analyzing. A part with visible damage can be marked as failed even if the meter
+   reads normal: a dried-out capacitor does not show up on a multimeter.
 7. **Verdict and reference (Muse Image)** — the confirmed component, the suggested
    replacement and an AI-generated reference of the repaired board, always labeled as
    illustrative (it is never diagnostic evidence).

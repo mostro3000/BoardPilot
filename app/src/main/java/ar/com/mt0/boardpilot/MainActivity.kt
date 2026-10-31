@@ -191,6 +191,7 @@ import ar.com.mt0.boardpilot.domain.Stage
 import ar.com.mt0.boardpilot.domain.ThemeMode
 import ar.com.mt0.boardpilot.domain.TitleTapDetector
 import ar.com.mt0.boardpilot.domain.isUntouched
+import ar.com.mt0.boardpilot.domain.MAX_EXTRA_PHOTOS
 import ar.com.mt0.boardpilot.domain.newDiagnosisSession
 import ar.com.mt0.boardpilot.domain.paused
 import ar.com.mt0.boardpilot.domain.projectStatus
@@ -454,6 +455,10 @@ fun BoardPilotApp(
     var referenceError by remember { mutableStateOf<String?>(null) }
     // Aviso de la tarjeta de foto (permiso de camara denegado, etc.).
     var photoNotice by remember { mutableStateOf<PhotoNotice?>(null) }
+    // Foto elegida para sumar a la reparacion, a la espera de mandarla; sobrevive a la camara.
+    var pickingExtraPhoto by rememberSaveable { mutableStateOf(false) }
+    var pendingExtraPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    val extraThumbnails = remember { mutableStateMapOf<String, List<Bitmap>>() }
     var croppingPhoto by rememberSaveable { mutableStateOf(false) }
     val photoScope = rememberCoroutineScope()
 
@@ -476,6 +481,15 @@ fun BoardPilotApp(
         if (requestInFlight) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
+    val extraPhotoCount = currentProject?.session?.extraPhotos?.size ?: 0
+    LaunchedEffect(openProjectId, extraPhotoCount) {
+        val id = openProjectId ?: return@LaunchedEffect
+        if (extraThumbnails[id].orEmpty().size != extraPhotoCount) {
+            extraThumbnails[id] = withContext(Dispatchers.IO) {
+                (0 until extraPhotoCount).mapNotNull { store.loadExtraThumbnail(id, it, THUMB_PX) }
+            }
+        }
+    }
     LaunchedEffect(openProjectId == null, projects.size) {
         if (openProjectId != null) return@LaunchedEffect
         projects.filter { it.id !in thumbnails }.forEach { project ->
@@ -495,6 +509,8 @@ fun BoardPilotApp(
         referenceError = null
         photoNotice = null
         croppingPhoto = false
+        pickingExtraPhoto = false
+        pendingExtraPhoto = null
         openProjectId = id
     }
 
@@ -581,6 +597,10 @@ fun BoardPilotApp(
             )
         }
         store.deleteReference(id)
+        store.deleteExtraPhotos(id)
+        extraThumbnails.remove(id)
+        pickingExtraPhoto = false
+        pendingExtraPhoto = null
         sparkNotes.remove(id)
         referenceBitmap = null
         mappingError = null
@@ -609,14 +629,23 @@ fun BoardPilotApp(
         }
     }
 
+    /** La foto elegida va a la placa o, si se esta por sumar otra, queda a la espera. */
+    fun receivePhoto(id: String, bitmap: Bitmap?) {
+        val extra = pickingExtraPhoto
+        pickingExtraPhoto = false
+        if (bitmap == null) return
+        if (extra) pendingExtraPhoto = bitmap else setBoardPhoto(id, bitmap)
+    }
+
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri: Uri? ->
         val id = openProjectId
-        if (uri != null && id != null) {
+        if (uri == null || id == null) {
+            pickingExtraPhoto = false
+        } else {
             photoScope.launch {
-                withContext(Dispatchers.IO) { loadBitmapDownscaled(context, uri) }
-                    ?.let { setBoardPhoto(id, it) }
+                receivePhoto(id, withContext(Dispatchers.IO) { loadBitmapDownscaled(context, uri) })
             }
         }
     }
@@ -637,7 +666,7 @@ fun BoardPilotApp(
                 null
             }
             withContext(Dispatchers.IO) { file.delete() }
-            if (bmp != null && id != null) setBoardPhoto(id, bmp)
+            if (id != null) receivePhoto(id, bmp) else pickingExtraPhoto = false
         }
     }
 
@@ -754,10 +783,15 @@ fun BoardPilotApp(
     }
 
     /** Pide a Muse Spark las siguientes mediciones sobre las hipotesis del motor. */
-    suspend fun planFor(client: MetaSparkClient, bmp: Bitmap, engine: DiagnosisEngine): SparkPlan {
+    suspend fun planFor(id: String, client: MetaSparkClient, bmp: Bitmap, engine: DiagnosisEngine): SparkPlan {
         val s = engine.session
+        val extraPhotos = withContext(Dispatchers.IO) {
+            s.extraPhotos.mapIndexedNotNull { index, note ->
+                store.loadExtraPhoto(id, index)?.let { it to note }
+            }
+        }
         val text = client.planMeasurements(
-            bmp, s.components, s.symptom, s.hypotheses, s.results, language, s.boardType,
+            bmp, s.components, s.symptom, s.hypotheses, s.results, language, s.boardType, extraPhotos,
         )
         return SparkOutputParser.parsePlan(
             text, s.components, s.hypotheses,
@@ -871,7 +905,7 @@ fun BoardPilotApp(
                     if (engine.session.pendingRequests.isEmpty()) {
                         planBusy += id
                         try {
-                            val plan = runCatching { planFor(client, bmp, engine) }.getOrNull()
+                            val plan = runCatching { planFor(id, client, bmp, engine) }.getOrNull()
                             // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                             if (engines[id] === engine) {
                                 if (plan != null && (plan.requests.isNotEmpty() || plan.hypotheses.isNotEmpty())) {
@@ -911,7 +945,7 @@ fun BoardPilotApp(
         planBusy += id
         photoScope.launch {
             try {
-                val plan = planFor(sparkClient(key), bmp, engine)
+                val plan = planFor(id, sparkClient(key), bmp, engine)
                 // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                 if (engines[id] !== engine) return@launch
                 applyPlan(id, engine, plan)
@@ -923,6 +957,18 @@ fun BoardPilotApp(
                 planBusy -= id
             }
         }
+    }
+
+    /** Suma la foto elegida y Muse Spark sigue analizando con ella y con todo lo medido. */
+    fun sendExtraPhoto(project: RepairProject, bitmap: Bitmap, note: String) {
+        val id = project.id
+        val engine = engineFor(project)
+        store.saveExtraPhoto(id, engine.session.extraPhotos.size, bitmap)
+        engine.addExtraPhoto(note)
+        extraThumbnails[id] = extraThumbnails[id].orEmpty() + thumbnailOf(bitmap)
+        pendingExtraPhoto = null
+        refresh(id)
+        askMeasurements(project)
     }
 
     /** Referencia visual de la reparacion con Muse Image (solo orientativa). */
@@ -1203,6 +1249,29 @@ fun BoardPilotApp(
                         referenceBusy = project.id in referenceBusy,
                         referenceError = referenceError,
                         onReferenceRequest = { startReference(project) },
+                        extraThumbnails = extraThumbnails[project.id].orEmpty(),
+                        addPhoto = {
+                            AddPhotoCard(
+                                strings = strings,
+                                count = session.extraPhotos.size,
+                                pending = pendingExtraPhoto,
+                                busy = project.id in planBusy,
+                                notice = photoNotice,
+                                sparkMode = sparkMode,
+                                onGallery = {
+                                    photoNotice = null
+                                    pickingExtraPhoto = true
+                                    galleryLauncher.launch("image/*")
+                                },
+                                onCamera = {
+                                    pickingExtraPhoto = true
+                                    openCamera()
+                                },
+                                onOpenSettings = ::openSettings,
+                                onSend = { photo, note -> sendExtraPhoto(project, photo, note) },
+                                onCancel = { pendingExtraPhoto = null },
+                            )
+                        },
                     )
                 }
                 if (contributorNoticeFor == project.id) {
@@ -1972,6 +2041,8 @@ private fun SessionContent(
     referenceBusy: Boolean,
     referenceError: String?,
     onReferenceRequest: () -> Unit,
+    extraThumbnails: List<Bitmap>,
+    addPhoto: @Composable () -> Unit,
 ) {
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = session.components.firstOrNull { it.id == selectedId }
@@ -2058,6 +2129,7 @@ private fun SessionContent(
 
         Stage.HYPOTHESES -> {
             HypothesisList(session, strings)
+            ExtraPhotosRow(strings, extraThumbnails)
             val next = session.currentRequest
             when {
                 // Hay que medir: se explica el paso y se adelanta la primera medicion.
@@ -2115,10 +2187,12 @@ private fun SessionContent(
                     }
                 }
             }
+            if (next == null) addPhoto()
         }
 
         Stage.MEASURING -> {
             HypothesisList(session, strings)
+            ExtraPhotosRow(strings, extraThumbnails)
             session.currentRequest?.let { req ->
                 val target = session.components.firstOrNull { it.id == req.componentId }
                 Card(Modifier.fillMaxWidth()) {
@@ -2256,6 +2330,105 @@ private fun HypothesisList(session: DiagnosisSession, strings: AppStrings) {
         val other = ((1.0 - session.hypotheses.sumOf { it.confidence }) * 100).toInt()
         if (other >= OTHER_CAUSE_MIN_PERCENT) {
             Text("• ${strings.otherCause} — $other%", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Las fotos que ya se sumaron a la reparacion, en miniatura. */
+@Composable
+private fun ExtraPhotosRow(strings: AppStrings, thumbnails: List<Bitmap>) {
+    if (thumbnails.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(strings.extraPhotosTitle, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            thumbnails.forEach { thumbnail ->
+                Image(
+                    bitmap = thumbnail.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Sin falla a la vista, el tecnico suma una foto (mas cerca, del lado de soldadura) y
+ * Muse Spark la analiza junto con la primera y con todo lo medido.
+ */
+@Composable
+private fun AddPhotoCard(
+    strings: AppStrings,
+    count: Int,
+    pending: Bitmap?,
+    busy: Boolean,
+    notice: PhotoNotice?,
+    sparkMode: SparkMode,
+    onGallery: () -> Unit,
+    onCamera: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onSend: (Bitmap, String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var note by rememberSaveable { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(strings.addPhotoTitle, fontWeight = FontWeight.Bold)
+            when {
+                pending != null -> {
+                    Image(
+                        bitmap = pending.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().height(180.dp),
+                        contentScale = ContentScale.Crop,
+                    )
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text(strings.addPhotoNote) },
+                        placeholder = { Text(strings.addPhotoNoteExample) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ContributorReminder(strings, sparkMode)
+                    Button(
+                        onClick = { onSend(pending, note); note = "" },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(strings.addPhotoSend) }
+                    OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                        Text(strings.contributorCancel)
+                    }
+                }
+                count >= MAX_EXTRA_PHOTOS -> Text(strings.addPhotoLimit(MAX_EXTRA_PHOTOS))
+                else -> {
+                    Text(strings.addPhotoHint)
+                    notice?.let {
+                        Text(
+                            when (it) {
+                                PhotoNotice.CAMERA_DENIED -> strings.cameraPermissionDenied
+                                PhotoNotice.CAMERA_PERMANENT -> strings.cameraPermissionPermanent
+                                PhotoNotice.CAMERA_UNAVAILABLE -> strings.cameraUnavailable
+                            },
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        if (it == PhotoNotice.CAMERA_PERMANENT) {
+                            OutlinedButton(
+                                onClick = onOpenSettings,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(strings.openAppSettings) }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onGallery, enabled = !busy, modifier = Modifier.weight(1f)) {
+                            Text(strings.photoGallery, maxLines = 1)
+                        }
+                        OutlinedButton(onClick = onCamera, enabled = !busy, modifier = Modifier.weight(1f)) {
+                            Text(strings.photoCamera, maxLines = 1)
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ private const val PROJECTS_DIR = "projects"
 private const val INDEX_FILE = "index.bpp"
 private const val BOARD_FILE = "board.jpg"
 private const val REFERENCE_FILE = "reference.jpg"
+private const val EXTRA_PREFIX = "extra_"
 
 // Sesion unica anterior a los proyectos (hasta el 28 oct): se migra una vez.
 private const val LEGACY_PREF_SESSION = "diagnosis_session"
@@ -30,7 +31,7 @@ private const val LEGACY_REFERENCE_PHOTO = "reference_photo.jpg"
 
 /**
  * Reparaciones guardadas en archivos privados: un indice "BPP1" con todos
- * los proyectos y una carpeta por id con su foto y su referencia. Hay una
+ * los proyectos y una carpeta por id con sus fotos y su referencia. Hay una
  * sola instancia por proceso: la rotacion reusa la lista en memoria, y toda
  * lectura o escritura de archivos pasa por un unico hilo, en orden, asi
  * nadie lee una foto o un indice a medio escribir.
@@ -89,6 +90,21 @@ class ProjectStore private constructor(context: Context) {
 
     fun deleteReference(id: String) = io.execute { File(dir(id), REFERENCE_FILE).delete() }
 
+    fun saveExtraPhoto(id: String, index: Int, bitmap: Bitmap) = io.execute {
+        writeJpeg(extraFile(id, index), bitmap)
+    }
+
+    /** Borra las fotos sumadas; la principal y la referencia quedan. */
+    fun deleteExtraPhotos(id: String) = io.execute {
+        dir(id).listFiles { file -> file.name.startsWith(EXTRA_PREFIX) }?.forEach { it.delete() }
+    }
+
+    /** Bloquea hasta leer: llamar fuera del hilo principal. */
+    fun loadExtraPhoto(id: String, index: Int): Bitmap? = read { decode(extraFile(id, index), 0) }
+
+    fun loadExtraThumbnail(id: String, index: Int, maxPx: Int): Bitmap? =
+        read { decode(extraFile(id, index), maxPx) }
+
     /** Bloquea hasta leer: llamar fuera del hilo principal. */
     fun loadBoardPhoto(id: String): Bitmap? = read { decode(File(dir(id), BOARD_FILE), 0) }
 
@@ -101,6 +117,8 @@ class ProjectStore private constructor(context: Context) {
     fun deleteFiles(id: String) = io.execute { dir(id).deleteRecursively() }
 
     private fun dir(id: String) = File(root, id)
+
+    private fun extraFile(id: String, index: Int) = File(dir(id), "$EXTRA_PREFIX$index.jpg")
 
     private fun <T> read(block: () -> T): T? =
         runCatching { io.submit(Callable { block() }).get() }.getOrNull()

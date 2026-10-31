@@ -361,6 +361,23 @@ class DiagnosisEngineTest {
     }
 
     @Test
+    fun `las fotos se suman sobre las hipotesis y hasta el limite`() {
+        val engine = incrementalEngine(listOf(coldA))
+        engine.answer(MeasurementOutcome.NORMAL)
+        repeat(MAX_EXTRA_PHOTOS) { engine.addExtraPhoto("  foto $it ") }
+        assertEquals("foto 0", engine.session.extraPhotos.first())
+        assertEquals(MAX_EXTRA_PHOTOS, engine.session.extraPhotos.size)
+        assertThrows(IllegalStateException::class.java) { engine.addExtraPhoto("una mas") }
+    }
+
+    @Test
+    fun `con mediciones en curso no se suman fotos`() {
+        val engine = incrementalEngine(listOf(coldA, coldB))
+        engine.startMeasuring()
+        assertThrows(IllegalStateException::class.java) { engine.addExtraPhoto("foto") }
+    }
+
+    @Test
     fun `sin dano visible no hay veredicto a pedido`() {
         val engine = incrementalEngine(listOf(coldA))
         engine.answer(MeasurementOutcome.NORMAL)

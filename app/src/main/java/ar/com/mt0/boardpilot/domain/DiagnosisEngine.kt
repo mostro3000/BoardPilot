@@ -117,6 +117,13 @@ class DiagnosisEngine(
         addRequests(plan.requests)
     }
 
+    /** Foto que suma el tecnico al no aparecer la falla, con lo que muestra (puede quedar vacio). */
+    fun addExtraPhoto(note: String) {
+        check(session.stage == Stage.HYPOTHESES) { "Las fotos se suman sobre las hipotesis" }
+        check(session.extraPhotos.size < MAX_EXTRA_PHOTOS) { "Ya no se pueden sumar mas fotos" }
+        session = session.copy(extraPhotos = session.extraPhotos + note.trim())
+    }
+
     /**
      * Veredicto sin lectura anormal, a pedido del tecnico: la pieza tiene dano a la
      * vista y el multimetro no siempre lo confirma (un capacitor seco mide normal).

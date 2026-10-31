@@ -53,7 +53,11 @@ medición o foto en vez de inventar.
    componentes y rotulado como sugerencia de IA. El mapa de la placa marca qué medir
    ahora, el % de cada hipótesis y la evidencia reunida (✓ ✗ ?).
 6. **Replanificación (Muse Spark)** — si las mediciones se agotan sin veredicto, el agente
-   pide las siguientes con las hipótesis y todo lo ya medido con su resultado.
+   pide las siguientes con las hipótesis y todo lo ya medido con su resultado. Cuando las
+   primeras hipótesis quedan descartadas puede sumar otras, y el técnico puede agregar hasta
+   cuatro fotos más (más cerca, del lado de soldadura) para que siga analizando. Una pieza con
+   daño a la vista se puede dar por fallada aunque el multímetro mida normal: un capacitor seco
+   no se detecta con él.
 7. **Veredicto y referencia (Muse Image)** — el componente confirmado, el reemplazo
    sugerido y una referencia generada por IA de la placa reparada, siempre rotulada como
    ilustrativa (nunca es evidencia diagnóstica).

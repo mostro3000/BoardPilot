@@ -179,6 +179,7 @@ class MetaSparkClient(
         done: List<MeasurementResult>,
         language: AppLanguage,
         boardType: BoardType = BoardType.UNKNOWN,
+        extraPhotos: List<Pair<Bitmap, String>> = emptyList(),
     ): String = withContext(Dispatchers.IO) {
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
         val hypothesesJson = JSONArray().apply {
@@ -208,7 +209,8 @@ class MetaSparkClient(
             "Candidate components:\n" +
             candidatesJson(SparkCandidates.select(components, hypotheses.map { it.componentId }.toSet())) +
             "\nCurrent hypotheses:\n" + hypothesesJson + "\n" +
-            "Measurements already done:\n" + doneJson
+            "Measurements already done:\n" + doneJson +
+            extraPhotosText(extraPhotos.map { it.second })
         val body = JSONObject().apply {
             put("model", mode.modelId)
             put("max_tokens", 12000)
@@ -230,11 +232,25 @@ class MetaSparkClient(
                             put("type", "image_url")
                             put("image_url", JSONObject().put(
                                 "url", "data:image/jpeg;base64," + encodeJpeg(bitmap)))
-                        }))
+                        })
+                        .also { content ->
+                            extraPhotos.forEach { (photo, _) ->
+                                content.put(JSONObject().apply {
+                                    put("type", "image_url")
+                                    put("image_url", JSONObject().put(
+                                        "url", "data:image/jpeg;base64," + encodeJpeg(photo)))
+                                })
+                            }
+                        })
                 }))
         }
         chat(body)
     }
+
+    /** Que muestra cada foto sumada, en el orden en que van despues de la primera imagen. */
+    private fun extraPhotosText(notes: List<String>): String =
+        if (notes.isEmpty()) "" else "\nExtra photos added by the technician, in order after the first image:\n" +
+            notes.mapIndexed { i, note -> "${i + 1}. " + note.ifBlank { "no description" } }.joinToString("\n")
 
     /**
      * Donde apoyar la punta roja y la negra en cada medicion (capa 2 de la guia
@@ -428,7 +444,7 @@ Reply with ONLY one valid JSON object in this exact shape, no prose and no code 
 {"damages":[{"componentId":"...","damage":"..."}],"newHypotheses":[{"id":"h5","title":"...","componentId":"...","confidence":0.3,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"needMoreEvidence":""}
 Rules:
 - When the measurements done ruled out the current hypotheses, or a multimeter can tell nothing more about them, add at most 2 new hypotheses in "newHypotheses": other faults that still explain the symptom given those results, never repeating one already ruled out. "confidence" is the probability of being the real cause. A hypothesis without visible damage is a suspicion from the symptom: say that in its rationale, do not say the part looks undamaged, and keep its confidence at 0.6 or less. "fix" says what to replace or repair as a direct action: give the part type and quote every marking you can read on that part; only when no marking is readable, give no numbers and say to use the same value and an equal or higher voltage rating, read from the original part or a schematic. Otherwise leave "newHypotheses" empty.
-- If you now see visible damage on a candidate, report it in "damages" and claim only what the photo really shows: blur, shadows, reflections, glue, flux and dust are not damage.
+- The technician may add extra photos after the first one (a closer view or the solder side). Look at them carefully: visible damage there is the strongest evidence. Report it in "damages" with the componentId of that part when it is one of the candidates, and add a new hypothesis for it when none covers that part.
 - Designators only tell the rough shape of the box (CYL a cylinder, RECT a rectangular block, not a rectifier): work out what each part really is from the photo.
 - Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list or from "newHypotheses", and one componentId exactly as in the candidate list. If no measurement can help, return an empty list.
 - kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.

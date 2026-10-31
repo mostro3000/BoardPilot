@@ -104,6 +104,23 @@ class SessionCodecTest {
     }
 
     @Test
+    fun `fotos sumadas con y sin descripcion y sesiones de antes de sumarlas`() {
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
+            extraPhotos = listOf("lado de soldadura | foto\nsegunda línea", "", "de cerca"),
+            stage = Stage.HYPOTHESES,
+        )
+        val text = SessionCodec.encode(session)
+        assertEquals(session, SessionCodec.decode(text))
+        // Termina en una foto sin descripcion: el texto no pierde esa ultima linea.
+        val conVaciaAlFinal = session.copy(extraPhotos = listOf("de cerca", ""))
+        assertEquals(conVaciaAlFinal, SessionCodec.decode(SessionCodec.encode(conVaciaAlFinal)))
+        val sinFotos = session.copy(extraPhotos = emptyList())
+        // Formato anterior: el texto termina en los resultados.
+        val antes = SessionCodec.encode(sinFotos).lines().dropLast(1).joinToString("\n")
+        assertEquals(sinFotos, SessionCodec.decode(antes))
+    }
+
+    @Test
     fun `hipotesis descartada y sesiones de antes de guardarlo`() {
         val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
             hypotheses = listOf(Hypothesis("h1", "t", "q3", 0.1, "r", fix = "f", ruledOut = true)),

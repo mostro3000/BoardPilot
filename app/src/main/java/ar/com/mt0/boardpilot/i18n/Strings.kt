@@ -74,6 +74,13 @@ interface AppStrings {
     val measuredNoVerdict: String
     val liveBlocked: String
     val otherCause: String
+    val extraPhotosTitle: String
+    val addPhotoTitle: String
+    val addPhotoHint: String
+    val addPhotoNote: String
+    val addPhotoNoteExample: String
+    val addPhotoSend: String
+    fun addPhotoLimit(max: Int): String
     fun visualVerdict(designator: String): String
     val askMeasurements: String
     val askingMeasurements: String
@@ -279,6 +286,13 @@ object EsStrings : AppStrings {
     override val startOver = "Empezar de nuevo"
     override val liveBlocked = "solo propuso mediciones con tensión. BoardPilot no las guía hasta tener un chequeo sin tensión correcto, ni con daño visible o una falla sin reparar. Pedí otras mediciones o reparalo primero."
     override val otherCause = "Otra causa, todavía sin identificar"
+    override val extraPhotosTitle = "Fotos sumadas"
+    override val addPhotoTitle = "Sumar otra foto"
+    override val addPhotoHint = "Una foto más cerca de la pieza sospechosa o del lado de soldadura le da a Muse Spark algo nuevo para analizar."
+    override val addPhotoNote = "Qué muestra (opcional)"
+    override val addPhotoNoteExample = "Ej.: de cerca, el capacitor grande"
+    override val addPhotoSend = "Analizar con esta foto"
+    override fun addPhotoLimit(max: Int) = "Ya sumaste las $max fotos que admite cada reparación."
     override fun visualVerdict(designator: String) = "Dar por fallada la pieza $designator: el daño se ve"
     override val fixLabel = "Si se confirma"
     override val measurementTitle = "Medición"
@@ -541,6 +555,13 @@ object EnStrings : AppStrings {
     override val startOver = "Start over"
     override val liveBlocked = "it only proposed live measurements. BoardPilot does not guide them until a check without power has come out right, nor while there is visible damage or an unrepaired fault. Ask for other measurements or repair it first."
     override val otherCause = "Another cause, not identified yet"
+    override val extraPhotosTitle = "Added photos"
+    override val addPhotoTitle = "Add another photo"
+    override val addPhotoHint = "A closer photo of the suspect part or of the solder side gives Muse Spark something new to analyze."
+    override val addPhotoNote = "What it shows (optional)"
+    override val addPhotoNoteExample = "E.g.: close-up of the big capacitor"
+    override val addPhotoSend = "Analyze with this photo"
+    override fun addPhotoLimit(max: Int) = "You already added the $max photos each repair allows."
     override fun visualVerdict(designator: String) = "Mark $designator as failed: the damage is visible"
     override val fixLabel = "If confirmed"
     override val measurementTitle = "Measurement"

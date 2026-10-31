@@ -150,9 +150,14 @@ data class DiagnosisSession(
     val stage: Stage = Stage.INTAKE,
     val verdictComponentId: String? = null,
     val replacement: String? = null,
+    /** Fotos que sumo el tecnico al no aparecer la falla: que muestra cada una (puede faltar). */
+    val extraPhotos: List<String> = emptyList(),
 ) {
     val currentRequest: MeasurementRequest? get() = pendingRequests.firstOrNull()
 }
+
+/** Fotos que se pueden sumar a una reparacion, ademas de la principal. */
+const val MAX_EXTRA_PHOTOS = 4
 
 /** Sesion de un proyecto nuevo: sin sintoma y con el tipo de placa por detectar. */
 fun newDiagnosisSession(): DiagnosisSession =
