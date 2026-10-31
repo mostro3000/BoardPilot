@@ -131,13 +131,15 @@ son la evidencia.
   clave abre en Configuración para cargarla); un círculo que gira mientras trabaja la IA;
   avisos con el color de error del tema.
 - **29 oct** — ojito para ver u ocultar la clave en su campo (oculta por defecto); APK y
-  AAB de release firmados en `release/` (`./gradlew signedRelease`, con las claves de firma
+  AAB de release firmados (`./gradlew signedRelease`, con las claves de firma
   fuera del repositorio); el veredicto y el mapa nombran el tipo de componente en el idioma
   de la app.
 - **31 oct** — modo Contributor con esfuerzo Máximo por defecto para Muse Spark, con un aviso
   antes del primer análisis (Estándar queda a un toque); resumen de privacidad en Acerca de;
   ahora el código decide cuándo se puede
-  enchufar una placa; prompts más estrictos con lo que la foto no respalda.
+  enchufar una placa; prompts más estrictos con lo que la foto no respalda; diagnóstico
+  incremental, con menos mediciones, hipótesis que crecen y fotos sumadas; primera versión firmada
+  en GitHub Releases.
 
 ## Probarla
 
@@ -145,8 +147,8 @@ son la evidencia.
 una clave propia de la Meta Model API (dev.meta.ai). BoardPilot siempre diagnostica en
 vivo: no tiene modo sin conexión.
 
-**Instalar:** el APK firmado está en [`release/`](release/)
-(`ar.com.mt0.boardpilot-<versión>.apk`): copiarlo al teléfono y abrirlo, o instalarlo con
+**Instalar:** bajar el APK firmado de la [última versión publicada](https://github.com/mostro3000/BoardPilot/releases/latest)
+(`ar.com.mt0.boardpilot-<versión>.apk`): abrirlo en el teléfono, o instalarlo con
 `adb install -r`. También se puede compilar (abajo).
 
 **Primer inicio:** sin clave cargada, la app abre en Configuración con el campo de la
@@ -172,8 +174,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 **Release firmado:** `./gradlew signedRelease` arma el APK y el AAB de release firmados con
-tu clave y los copia a `release/` como `ar.com.mt0.boardpilot-<versión>.apk` y `.aab`. La
-clave nunca va al repositorio: se pasan `boardpilotStoreFile`, `boardpilotStorePassword`,
+tu clave y los copia a `release/`, que git ignora, como `ar.com.mt0.boardpilot-<versión>.apk`
+y `.aab`; las versiones publicadas van en GitHub Releases. La clave nunca va al repositorio: se pasan `boardpilotStoreFile`, `boardpilotStorePassword`,
 `boardpilotKeyAlias` y `boardpilotKeyPassword` como propiedades de Gradle (por ejemplo en
 `~/.gradle/gradle.properties`); sin ellas, la tarea se detiene antes de compilar. Para
 firmar el AAB con otra clave de subida, como pide Google Play, se suman

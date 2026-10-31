@@ -128,13 +128,15 @@ documentation only before it); commit dates are the evidence.
   own key; with no key it opens on Settings to load one); a spinning indicator while the
   AI works; warnings in the theme's error color.
 - **Oct 29** — show/hide toggle on the API key field (hidden by default); signed release
-  APK and AAB in `release/` (`./gradlew signedRelease`, with the signing keys kept out of
+  APK and AAB (`./gradlew signedRelease`, with the signing keys kept out of
   the repository); the verdict and the board map name the component type in the app's
   language.
 - **Oct 31** — Contributor mode at maximum reasoning effort as the default for Muse Spark,
   behind a notice before the first analysis (Standard is one tap away); privacy summary in
   the app's About screen; the code now decides when a
-  board may be plugged in; prompts tightened against claims the photo does not support.
+  board may be plugged in; prompts tightened against claims the photo does not support;
+  incremental diagnosis with fewer measurements, hypotheses that grow and added photos; first
+  signed build on GitHub Releases.
 
 ## Try it
 
@@ -142,9 +144,9 @@ documentation only before it); commit dates are the evidence.
 and your own Meta Model API key (dev.meta.ai). BoardPilot always diagnoses live: there is
 no offline mode.
 
-**Install:** the signed APK is in [`release/`](release/)
-(`ar.com.mt0.boardpilot-<version>.apk`): copy it to the phone and open it, or install it
-with `adb install -r`. You can also build it from source (below).
+**Install:** download the signed APK from the [latest release](https://github.com/mostro3000/BoardPilot/releases/latest)
+(`ar.com.mt0.boardpilot-<version>.apk`): open it on the phone, or install it with
+`adb install -r`. You can also build it from source (below).
 
 **First launch:** with no key loaded, the app opens on Settings with the key field
 first. Paste your Meta Model API key: it is stored only in the app's private storage on
@@ -167,8 +169,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 **Signed release:** `./gradlew signedRelease` builds the release APK and AAB signed with
-your own key and copies them to `release/` as `ar.com.mt0.boardpilot-<version>.apk` and
-`.aab`. The key never goes into the repository: pass `boardpilotStoreFile`,
+your own key and copies them to `release/`, which git ignores, as
+`ar.com.mt0.boardpilot-<version>.apk` and `.aab`; published builds go on GitHub Releases. The
+key never goes into the repository: pass `boardpilotStoreFile`,
 `boardpilotStorePassword`, `boardpilotKeyAlias` and `boardpilotKeyPassword` as Gradle
 properties (for example in `~/.gradle/gradle.properties`); without them the task stops
 before building. To sign the AAB with a separate upload key, as Google Play expects, also

@@ -100,8 +100,9 @@ android {
     }
 }
 
-// APK y AAB de release firmados, en release/ del repo y con el applicationId y la version
-// en el nombre (ar.com.mt0.boardpilot-0.1.0.apk / .aab): ./gradlew signedRelease
+// APK y AAB de release firmados, en release/ (fuera de git: se publican en GitHub Releases) y
+// con el applicationId y la version en el nombre (ar.com.mt0.boardpilot-0.1.1.apk / .aab):
+// ./gradlew signedRelease
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
         val published = variant.applicationId.zip(variant.outputs.single().versionName) { id, version ->
