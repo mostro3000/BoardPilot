@@ -12,6 +12,32 @@ app with no backend of its own**.
 > Built for the Meta Global AI Developer Hackathon (Indie Developer track, *Push the
 > Frontier* theme) during the build period (Oct 27 – Nov 4, 2026).
 
+## Screenshots
+
+Real screens from a Samsung S25, diagnosing the author's own boards with the live models. The
+meter readings were entered by a script to walk through the flow: they are not real measurements.
+
+<table>
+<tr>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/01-intake.jpg" alt="Photo and symptom" width="200"><br><sub>Photo and symptom</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/02-map.jpg" alt="SAM 3.1 maps the components" width="200"><br><sub>SAM 3.1 maps the components</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/03-contributor-notice.jpg" alt="Notice before the first analysis" width="200"><br><sub>Notice before the first analysis</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/04-hypotheses.jpg" alt="Damage marked and ranked hypotheses" width="200"><br><sub>Damage marked and ranked hypotheses</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/05-measurement-guide.jpg" alt="Where the probes go" width="200"><br><sub>Where the probes go</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/06-safety-gate.jpg" alt="Safety gate before measuring" width="200"><br><sub>Safety gate before measuring</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/07-verdict.jpg" alt="Verdict and replacement" width="200"><br><sub>Verdict and replacement</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/08-repairs.jpg" alt="My repairs" width="200"><br><sub>My repairs</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/09-no-fault-found.jpg" alt="No fault found: ruled-out hypotheses and another cause" width="200"><br><sub>No fault found: ruled-out hypotheses and another cause</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/10-add-photo.jpg" alt="Add another photo and keep analyzing" width="200"><br><sub>Add another photo and keep analyzing</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/11-settings.jpg" alt="Language, theme, effort and mode" width="200"><br><sub>Language, theme, effort and mode</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/12-about.jpg" alt="About: version and mode warning" width="200"><br><sub>About: version and mode warning</sub></td>
+</tr>
+</table>
+
 ## Why
 
 Field technicians and independent repair shops (initial focus: Latin America) often

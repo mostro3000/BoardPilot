@@ -12,6 +12,33 @@ propio**.
 > Proyecto del Meta Global AI Developer Hackathon (track Indie Developer, tema *Push the
 > Frontier*), construido durante el período del evento (27 oct – 4 nov de 2026).
 
+## Capturas
+
+Pantallas reales de un Samsung S25, en inglés, diagnosticando placas propias del autor con los
+modelos en vivo. Las lecturas del multímetro las cargó un script para recorrer el flujo: no son
+mediciones reales.
+
+<table>
+<tr>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/01-intake.jpg" alt="Foto y síntoma" width="200"><br><sub>Foto y síntoma</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/02-map.jpg" alt="SAM 3.1 mapea los componentes" width="200"><br><sub>SAM 3.1 mapea los componentes</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/03-contributor-notice.jpg" alt="Aviso antes del primer análisis" width="200"><br><sub>Aviso antes del primer análisis</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/04-hypotheses.jpg" alt="Daño marcado e hipótesis ordenadas" width="200"><br><sub>Daño marcado e hipótesis ordenadas</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/05-measurement-guide.jpg" alt="Dónde van las puntas" width="200"><br><sub>Dónde van las puntas</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/06-safety-gate.jpg" alt="Compuerta de seguridad antes de medir" width="200"><br><sub>Compuerta de seguridad antes de medir</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/07-verdict.jpg" alt="Veredicto y reemplazo" width="200"><br><sub>Veredicto y reemplazo</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/08-repairs.jpg" alt="Mis reparaciones" width="200"><br><sub>Mis reparaciones</sub></td>
+</tr>
+<tr>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/09-no-fault-found.jpg" alt="Sin falla a la vista: hipótesis descartadas y otra causa" width="200"><br><sub>Sin falla a la vista: hipótesis descartadas y otra causa</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/10-add-photo.jpg" alt="Sumar otra foto y seguir analizando" width="200"><br><sub>Sumar otra foto y seguir analizando</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/11-settings.jpg" alt="Idioma, tema, esfuerzo y modo" width="200"><br><sub>Idioma, tema, esfuerzo y modo</sub></td>
+<td align="center" valign="top" width="25%"><img src="docs/screenshots/12-about.jpg" alt="Acerca de: versión y advertencia del modo" width="200"><br><sub>Acerca de: versión y advertencia del modo</sub></td>
+</tr>
+</table>
+
 ## Por qué
 
 Los técnicos de campo y talleres independientes (foco inicial: Latinoamérica) suelen
