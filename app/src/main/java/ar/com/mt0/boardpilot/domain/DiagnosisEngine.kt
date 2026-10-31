@@ -8,8 +8,17 @@ package ar.com.mt0.boardpilot.domain
  * - Las mediciones con tension solo se ofrecen cuando la placa se puede enchufar
  *   ([safeMeasurementQueue]), tambien en sesiones guardadas por versiones anteriores.
  * - Un veredicto exige evidencia de medicion real que confirme la hipotesis lider
- *   y confianza >= umbral; si la evidencia no alcanza, se pide mas evidencia.
+ *   y confianza >= umbral; si la evidencia no alcanza, se pide mas evidencia. La
+ *   unica excepcion la decide el tecnico: una pieza con dano a la vista.
+ * - Las confianzas son probabilidades de causas que compiten: lo que falta para
+ *   sumar 1 es la chance de otra causa, que crece cuando se descartan hipotesis.
  */
+private const val ABNORMAL_FACTOR = 4.0
+private const val NORMAL_FACTOR = 0.15
+
+/** Piso de una hipotesis con una lectura anormal o con dano a la vista: pesa mas que lo estimado antes. */
+private const val EVIDENCE_FLOOR = 0.6
+
 class DiagnosisEngine(
     initial: DiagnosisSession,
     private val verdictThreshold: Double = 0.80,
@@ -77,13 +86,47 @@ class DiagnosisEngine(
         check(session.stage == Stage.HYPOTHESES) { "Las mediciones nuevas se suman sobre las hipotesis" }
         val known = session.hypotheses.map { it.id }.toSet()
         val fresh = requests.filter { it.targetHypothesisId in known }
-        if (fresh.isNotEmpty()) {
-            session = session.copy(
-                pendingRequests = safeMeasurementQueue(
-                    session.pendingRequests + fresh, session.components, session.results,
-                ),
-            )
+        session = session.copy(
+            pendingRequests = safeMeasurementQueue(
+                session.pendingRequests + fresh, session.components, session.results,
+            ),
+        )
+    }
+
+    /**
+     * Lo que responde Muse Spark al seguir analizando: causas nuevas si las anteriores
+     * quedaron descartadas, dano que recien ahora se ve y las siguientes mediciones. El
+     * dano visible vuelve a poner en juego la hipotesis de esa pieza.
+     */
+    fun applyPlan(plan: SparkPlan) {
+        check(session.stage == Stage.HYPOTHESES) { "El plan se aplica sobre las hipotesis" }
+        val known = session.hypotheses.map { it.id }.toSet()
+        val merged = (session.hypotheses + plan.hypotheses.filterNot { it.id in known }).map { h ->
+            if (h.componentId in plan.damages) {
+                h.copy(confidence = maxOf(h.confidence, EVIDENCE_FLOOR), ruledOut = false)
+            } else {
+                h
+            }
         }
+        session = session.copy(
+            hypotheses = normalize(merged),
+            components = session.components.map { component ->
+                plan.damages[component.id]?.let { component.copy(visibleDamage = it) } ?: component
+            },
+        )
+        addRequests(plan.requests)
+    }
+
+    /**
+     * Veredicto sin lectura anormal, a pedido del tecnico: la pieza tiene dano a la
+     * vista y el multimetro no siempre lo confirma (un capacitor seco mide normal).
+     */
+    fun acceptVisibleDamage(componentId: String) {
+        check(session.stage == Stage.HYPOTHESES) { "Se decide sobre las hipotesis" }
+        require(session.components.any { it.id == componentId && !it.visibleDamage.isNullOrBlank() }) {
+            "La pieza no tiene dano visible"
+        }
+        session = session.copy(stage = Stage.VERDICT, verdictComponentId = componentId)
     }
 
     /**
@@ -182,7 +225,9 @@ class DiagnosisEngine(
         remaining: List<MeasurementRequest>,
     ): Stage {
         val leader = hypotheses.firstOrNull() ?: return Stage.HYPOTHESES
-        val proven = leader.confirmedByMeasurement && leader.confidence >= verdictThreshold
+        // Entre las hipotesis: "otra causa" no compite con una lectura anormal.
+        val share = leader.confidence / hypotheses.sumOf { it.confidence }.coerceAtLeast(1e-9)
+        val proven = leader.confirmedByMeasurement && share >= verdictThreshold
         return when {
             proven -> Stage.VERDICT
             remaining.isNotEmpty() -> Stage.MEASURING
@@ -200,18 +245,28 @@ class DiagnosisEngine(
         val adjusted = hypotheses.map { h ->
             when {
                 h.id != request.targetHypothesisId -> h
-                outcome == MeasurementOutcome.ABNORMAL ->
-                    h.copy(confidence = h.confidence * 4.0, confirmedByMeasurement = true)
-                else -> h.copy(confidence = h.confidence * 0.15)
+                outcome == MeasurementOutcome.ABNORMAL -> h.copy(
+                    confidence = maxOf(h.confidence * ABNORMAL_FACTOR, EVIDENCE_FLOOR),
+                    confirmedByMeasurement = true,
+                    ruledOut = false,
+                )
+                else -> h.copy(
+                    confidence = h.confidence * NORMAL_FACTOR,
+                    ruledOut = !h.confirmedByMeasurement,
+                )
             }
         }
         return normalize(adjusted)
     }
 
+    /** De mayor a menor; solo se achican si suman mas de 1 (el modelo no siempre respeta eso). */
     private fun normalize(hypotheses: List<Hypothesis>): List<Hypothesis> {
-        val total = hypotheses.sumOf { it.confidence }.takeIf { it > 0 } ?: return hypotheses
-        return hypotheses
-            .map { it.copy(confidence = it.confidence / total) }
-            .sortedByDescending { it.confidence }
+        val total = hypotheses.sumOf { it.confidence }
+        val scaled = if (total > 1.0) {
+            hypotheses.map { it.copy(confidence = it.confidence / total) }
+        } else {
+            hypotheses
+        }
+        return scaled.sortedByDescending { it.confidence }
     }
 }

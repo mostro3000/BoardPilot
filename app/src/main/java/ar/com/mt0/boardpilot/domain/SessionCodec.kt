@@ -39,6 +39,7 @@ object SessionCodec {
                     enc(hypothesis.id), enc(hypothesis.title), enc(hypothesis.componentId),
                     hypothesis.confidence.toString(), enc(hypothesis.rationale),
                     if (hypothesis.confirmedByMeasurement) "1" else "0", enc(hypothesis.fix),
+                    if (hypothesis.ruledOut) "1" else "0",
                 ).joinToString("|"),
             )
         }
@@ -90,8 +91,8 @@ object SessionCodec {
             )
         }
         val hypotheses = List(cursor.nextCount()) {
-            // Las sesiones guardadas antes de "fix" traen 6 campos.
-            val fields = cursor.nextFields(6, 7)
+            // Las sesiones guardadas antes de "fix" traen 6 campos; antes de "ruledOut", 7.
+            val fields = cursor.nextFields(6, 7, 8)
             Hypothesis(
                 id = dec(fields[0]),
                 title = dec(fields[1]),
@@ -100,6 +101,7 @@ object SessionCodec {
                 rationale = dec(fields[4]),
                 confirmedByMeasurement = fields[5] == "1",
                 fix = fields.getOrNull(6)?.let(::dec).orEmpty(),
+                ruledOut = fields.getOrNull(7) == "1",
             )
         }
         val requests = List(cursor.nextCount()) {

@@ -132,6 +132,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -226,6 +227,9 @@ private const val PREF_THEME = "theme_mode"
 private const val PREF_EFFORT = "reasoning_effort"
 private const val PREF_SPARK_MODE = "spark_mode"
 private const val PREF_CONTRIBUTOR_ACCEPTED = "contributor_accepted"
+
+/** Desde este valor se muestra la chance de otra causa en la lista de hipotesis. */
+private const val OTHER_CAUSE_MIN_PERCENT = 20
 /** Lado mayor de la miniatura de cada proyecto en la lista. */
 private const val THUMB_PX = 192
 private const val APP_AUTHOR = "Mauricio Tagliaferro"
@@ -761,6 +765,17 @@ fun BoardPilotApp(
         )
     }
 
+    /** Aplica el plan y deja la nota: lo que dice Muse Spark o por que no quedo nada para medir. */
+    fun applyPlan(id: String, engine: DiagnosisEngine, plan: SparkPlan) {
+        engine.applyPlan(plan)
+        val note = when {
+            engine.session.pendingRequests.isNotEmpty() -> plan.needMoreEvidence
+            plan.requests.isNotEmpty() -> strings.liveBlocked
+            else -> plan.needMoreEvidence ?: strings.noMeasurementsLive
+        }
+        if (note != null) sparkNotes[id] = note else sparkNotes.remove(id)
+    }
+
     /**
      * Capa 2 de la guia visual: Muse Spark ubica las puntas de las mediciones
      * pendientes que todavia no las tienen, en segundo plano y todas juntas.
@@ -859,11 +874,8 @@ fun BoardPilotApp(
                             val plan = runCatching { planFor(client, bmp, engine) }.getOrNull()
                             // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                             if (engines[id] === engine) {
-                                if (plan != null && plan.requests.isNotEmpty()) {
-                                    engine.addRequests(plan.requests)
-                                    if (engine.session.pendingRequests.isEmpty()) {
-                                        sparkNotes[id] = strings.liveBlocked
-                                    }
+                                if (plan != null && (plan.requests.isNotEmpty() || plan.hypotheses.isNotEmpty())) {
+                                    applyPlan(id, engine, plan)
                                     refresh(id)
                                 } else {
                                     (plan?.needMoreEvidence ?: diagnosis.needMoreEvidence)
@@ -902,18 +914,9 @@ fun BoardPilotApp(
                 val plan = planFor(sparkClient(key), bmp, engine)
                 // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                 if (engines[id] !== engine) return@launch
-                if (plan.requests.isNotEmpty()) {
-                    engine.addRequests(plan.requests)
-                    if (engine.session.pendingRequests.isEmpty()) {
-                        sparkNotes[id] = strings.liveBlocked
-                    } else {
-                        sparkNotes.remove(id)
-                    }
-                    refresh(id)
-                    requestProbes(id, engine, bmp, key)
-                } else {
-                    sparkNotes[id] = plan.needMoreEvidence ?: strings.noMeasurementsLive
-                }
+                applyPlan(id, engine, plan)
+                refresh(id)
+                requestProbes(id, engine, bmp, key)
             } catch (e: Exception) {
                 if (engines[id] === engine) sparkNotes[id] = strings.askFailed
             } finally {
@@ -2095,6 +2098,17 @@ private fun SessionContent(
                             if (planBusy) BusyLabel(strings.askingMeasurements)
                             else Text(strings.askMeasurements)
                         }
+                        // Un capacitor seco mide normal: con el dano a la vista decide el tecnico.
+                        session.hypotheses
+                            .firstOrNull { h ->
+                                session.components.any { it.id == h.componentId && !it.visibleDamage.isNullOrBlank() }
+                            }
+                            ?.let { h ->
+                                OutlinedButton(
+                                    onClick = { engine.acceptVisibleDamage(h.componentId); refresh() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(strings.visualVerdict(designatorOf(session, h.componentId))) }
+                            }
                         OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
                             Text(strings.startOver)
                         }
@@ -2220,6 +2234,15 @@ private fun HypothesisList(session: DiagnosisSession, strings: AppStrings) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(strings.hypothesesTitle, fontWeight = FontWeight.Bold)
         session.hypotheses.forEach { h ->
+            // Descartada por una medicion: queda a la vista, sin el detalle.
+            if (h.ruledOut) {
+                Text(
+                    "✗ ${h.title} — ${(h.confidence * 100).toInt()}%",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textDecoration = TextDecoration.LineThrough,
+                )
+                return@forEach
+            }
             Text("• ${h.title} — ${(h.confidence * 100).toInt()}%" +
                 if (h.confirmedByMeasurement) strings.confirmedSuffix else "")
             if (h.rationale.isNotBlank()) {
@@ -2228,6 +2251,11 @@ private fun HypothesisList(session: DiagnosisSession, strings: AppStrings) {
             if (h.fix.isNotBlank()) {
                 Text("    ${strings.fixLabel}: ${h.fix}", color = MaterialTheme.colorScheme.secondary)
             }
+        }
+        // Lo que falta para 100 %: crece a medida que las mediciones descartan hipotesis.
+        val other = ((1.0 - session.hypotheses.sumOf { it.confidence }) * 100).toInt()
+        if (other >= OTHER_CAUSE_MIN_PERCENT) {
+            Text("• ${strings.otherCause} — $other%", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

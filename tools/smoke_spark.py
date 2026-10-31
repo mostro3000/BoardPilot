@@ -55,7 +55,9 @@ Rules:
 - componentId must be the candidate "id" value exactly as in the list (for example "cyl2-sam1"), plus "dmg1-spark" when you reported unmappedDamage. Designators (for example "CYL 2") are only for naming components inside texts and only tell the rough shape of the box (CYL a cylinder, RECT a rectangular block, not a rectifier): work out what each part really is from the photo. Never invent silkscreen reference designators.
 BOARD_RULES
 - For each hypothesis, "fix" says what to replace or repair if it is confirmed, written as a direct action without restating the condition (for example "Replace with ..."). Give the part type and quote every marking you can read on that part in the photo, with the value or rating it states. Only when no marking is readable, give no numbers: say to use the same value and an equal or higher voltage rating, read from the original part or a schematic. Never suggest a lower rating than the original, and name a package or part number only if you can see it.
-- Whenever you give hypotheses, also give between 1 and 5 measurements, ordered by diagnostic value and safety. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
+- "confidence" is the probability that each hypothesis is the real cause, as competing explanations: all of them together must add up to at most 1.
+- Rank and rate hypotheses by how likely they are, not by how easy they are to measure: a fault a multimeter cannot confirm (for example a dried-out capacitor: a resistance reading only finds shorts) stays in the list with its real likelihood, but gets no measurement.
+- Whenever you give hypotheses, also give only the measurements that can change the decision, most decisive first: 1 or 2 when a part is visibly damaged, at most 3 otherwise. Do not give one per hypothesis by default. Each targets exactly one hypothesis by its id and one component, uses a kind that is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements), says where to put the probes on this board, and describes what normal vs abnormal looks like on the meter.
 - zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits, any part marked in kV). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
 - Safety: continuity, resistance and diode measurements are done only with the unit unplugged and capacitors discharged, and they all go before any VOLTAGE_DC. Give a VOLTAGE_DC only when de-energized checks cannot tell the hypotheses apart, never as the only measurement and never if the photo shows damage. Use the SECONDARY zone whenever it can answer; PRIMARY only when nothing else can. Its instruction starts with the condition to plug the unit in (the de-energized checks found no short, naming what was checked) and says to attach the probes while unplugged, plug in without touching the board, read and unplug.
 - If the photo or candidates are insufficient, return empty arrays and explain in needMoreEvidence what photo/measurement you need.
@@ -89,16 +91,19 @@ def board_arg() -> str:
 
 # Mismo prompt que MetaSparkClient.PLAN_PROMPT (mantener en sync).
 PLAN = """You are BoardPilot, an expert electronics repair copilot guiding a technician with a multimeter, one measurement at a time.
-You receive the clean photo of a board, its candidate components (JSON, normalized 0..1 boxes, origin top-left), the symptom, the current fault hypotheses (with ids and confidence) and the measurements already done with their results. Propose the NEXT measurements that best confirm or rule out the hypotheses, most informative first.
+You receive the clean photo of a board, its candidate components (JSON, normalized 0..1 boxes, origin top-left), the symptom, the current fault hypotheses (with ids, confidence and whether a measurement confirmed or ruled them out) and the measurements already done with their results. Propose the NEXT measurements that best confirm or rule out the hypotheses, most informative first.
 Reply with ONLY one valid JSON object in this exact shape, no prose and no code fences:
-{"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"needMoreEvidence":""}
+{"damages":[{"componentId":"...","damage":"..."}],"newHypotheses":[{"id":"h5","title":"...","componentId":"...","confidence":0.3,"rationale":"...","fix":"..."}],"measurements":[{"id":"m1","componentId":"...","kind":"CONTINUITY|RESISTANCE|VOLTAGE_DC|DIODE","instruction":"...","normal":"...","abnormal":"...","targetHypothesisId":"h1","zone":"PRIMARY|SECONDARY|HIGH_VOLTAGE"}],"needMoreEvidence":""}
 Rules:
-- Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list and one componentId exactly as in the candidate list.
+- When the measurements done ruled out the current hypotheses, or a multimeter can tell nothing more about them, add at most 2 new hypotheses in "newHypotheses": other faults that still explain the symptom given those results, never repeating one already ruled out. "confidence" is the probability of being the real cause. A hypothesis without visible damage is a suspicion from the symptom: say that in its rationale, do not say the part looks undamaged, and keep its confidence at 0.6 or less. "fix" says what to replace or repair as a direct action: give the part type and quote every marking you can read on that part; only when no marking is readable, give no numbers and say to use the same value and an equal or higher voltage rating, read from the original part or a schematic. Otherwise leave "newHypotheses" empty.
+- If you now see visible damage on a candidate, report it in "damages" and claim only what the photo really shows: blur, shadows, reflections, glue, flux and dust are not damage.
+- Designators only tell the rough shape of the box (CYL a cylinder, RECT a rectangular block, not a rectifier): work out what each part really is from the photo.
+- Between 1 and 3 measurements and never repeat one already done. Each targets one hypothesis id from the list or from "newHypotheses", and one componentId exactly as in the candidate list. If no measurement can help, return an empty list.
 - kind is exactly CONTINUITY, RESISTANCE, VOLTAGE_DC or DIODE (never AC or mains measurements). The instruction says where to put the probes on this board; normal and abnormal say what the meter shows.
 - zone says where on the board the measurement is: PRIMARY (mains side: everything before the isolation transformer or optocoupler, the DC bus, and any board that is not isolated from mains), SECONDARY (the isolated low-voltage side) or HIGH_VOLTAGE (CCFL or backlight inverters, microwave or CRT high voltage, flash circuits, any part marked in kV). Never give a VOLTAGE_DC measurement in a HIGH_VOLTAGE zone. If unsure, use PRIMARY.
 - Safety: continuity, resistance and diode measurements only with the unit unplugged and capacitors discharged, and they all go before any VOLTAGE_DC. Give a VOLTAGE_DC only when de-energized checks cannot tell the hypotheses apart, and never if a candidate has visibleDamage, a measurement already done came out ABNORMAL or none came out NORMAL with the unit unplugged yet: then the board stays unplugged, so ask for de-energized checks only. Use the SECONDARY zone whenever it can answer; PRIMARY only when nothing else can. Its instruction starts with the condition to plug the unit in (the de-energized checks found no short, naming what was checked) and says to attach the probes while unplugged, plug in without touching the board, read and unplug.
 - If no further measurement can tell the hypotheses apart, return an empty list and say in needMoreEvidence what photo or information you need.
-- All user-visible strings (instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
+- All user-visible strings (damage, title, rationale, fix, instruction, normal, abnormal, needMoreEvidence) in LANGUAGE. They never contain ids (h1, m1, cyl2-sam1): name hypotheses by what they say and components by their designator."""
 
 
 ID_IN_TEXT = re.compile(r"(?<![\w-])(h\d+[a-z]?|m\d+[a-z]?)(?![\w-])")
@@ -488,8 +493,10 @@ def plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) -
     """Pide las mediciones siguientes como si todas las del diagnostico dieran normal."""
     done = [{"id": m.get("id"), "measured": f"{m.get('kind')} {m.get('componentId')}: {m.get('instruction')}",
              "result": "NORMAL"} for m in meas]
+    measured = {m.get("targetHypothesisId") for m in meas}
     hyp_list = [{"id": h.get("id"), "title": h.get("title"), "componentId": h.get("componentId"),
-                 "confidence": h.get("confidence"), "confirmedByMeasurement": False} for h in hyps]
+                 "confidence": h.get("confidence"), "confirmedByMeasurement": False,
+                 "ruledOutByMeasurement": h.get("id") in measured} for h in hyps]
     shown = select_candidates(candidates, {h.get("componentId") for h in hyps})
     board = board_arg()
     board_line = "" if board == "UNKNOWN" else f"Board type: {board}. {PLAYBOOKS['types'][board]}\n"
@@ -513,9 +520,14 @@ def plan_step(clean_url, candidates, valid_ids, symptom, language, hyps, meas) -
     print("usage plan:", json.dumps(usage))
     parsed = parse_obj(content)
     plan = parsed.get("measurements") or []
-    hyp_ids = {h.get("id") for h in hyps}
+    new_hyps = parsed.get("newHypotheses") or []
+    hyp_ids = {h.get("id") for h in hyps} | {h.get("id") for h in new_hyps}
+    for h in new_hyps:
+        print(f"PLAN HIPOTESIS NUEVA {h.get('componentId')} {h.get('confidence')}: {str(h.get('title'))[:100]}")
+    print("PLAN DANO:", parsed.get("damages") or [])
     done_ids = {d["id"] for d in done}
-    problems = []
+    problems = [f"hipotesis nueva con componentId fuera de lista: {h}" for h in new_hyps
+                if h.get("componentId") not in valid_ids]
     for m in plan:
         if m.get("componentId") not in valid_ids:
             problems.append(f"plan con componentId fuera de lista: {m}")

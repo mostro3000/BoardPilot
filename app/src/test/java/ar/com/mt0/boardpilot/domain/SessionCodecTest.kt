@@ -64,10 +64,11 @@ class SessionCodecTest {
         )
         val text = SessionCodec.encode(session)
         assertEquals(session, SessionCodec.decode(text))
-        // Formato anterior: la hipotesis sin el septimo campo.
+        // Formato anterior: la hipotesis sin el septimo campo ni los siguientes.
         val legacy = text.lines().joinToString("\n") { line ->
             val parts = line.split("|")
-            if (parts.size == 7) parts.take(6).joinToString("|") else line
+            // Los componentes tambien traen 8 campos: el sexto de la hipotesis es 0 o 1.
+            if (parts.size == 8 && parts[5] in setOf("0", "1")) parts.take(6).joinToString("|") else line
         }
         assertEquals("", SessionCodec.decode(legacy).hypotheses.single().fix)
     }
@@ -100,6 +101,21 @@ class SessionCodecTest {
         val old = SessionCodec.decode(legacy)
         assertEquals(listOf(null, null, null), old.pendingRequests.map { it.probes })
         assertEquals("", old.results.single().componentId)
+    }
+
+    @Test
+    fun `hipotesis descartada y sesiones de antes de guardarlo`() {
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
+            hypotheses = listOf(Hypothesis("h1", "t", "q3", 0.1, "r", fix = "f", ruledOut = true)),
+            stage = Stage.HYPOTHESES,
+        )
+        val text = SessionCodec.encode(session)
+        assertEquals(session, SessionCodec.decode(text))
+        val before = text.lines().joinToString("\n") { line ->
+            val parts = line.split("|")
+            if (parts.size == 8) parts.take(7).joinToString("|") else line
+        }
+        assertEquals(false, SessionCodec.decode(before).hypotheses.single().ruledOut)
     }
 
     @Test

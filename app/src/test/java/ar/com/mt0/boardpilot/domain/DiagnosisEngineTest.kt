@@ -249,14 +249,122 @@ class DiagnosisEngineTest {
     }
 
     @Test
-    fun `las confidencias quedan normalizadas y ordenadas`() {
+    fun `una lectura normal deja la diferencia como otra causa y las confianzas ordenadas`() {
         val engine = engineAtMeasuring(AppLanguage.ES)
         engine.confirmSafety()
         engine.submitResult(MeasurementResult("m_f1", MeasurementOutcome.NORMAL))
 
         val confidences = engine.session.hypotheses.map { it.confidence }
-        assertEquals(1.0, confidences.sum(), 1e-9)
+        assertEquals(0.83, confidences.sum(), 1e-9)
         assertEquals(confidences.sortedDescending(), confidences)
+        assertTrue(engine.session.hypotheses.single { it.id == "h_f1" }.ruledOut)
+    }
+
+    private val incremental = listOf(
+        Hypothesis("h1", "t1", "c1", 0.55, ""),
+        Hypothesis("h2", "t2", "c2", 0.25, ""),
+        Hypothesis("h3", "t3", "c3", 0.10, ""),
+    )
+
+    private fun incrementalEngine(requests: List<MeasurementRequest>, parts: List<BoardComponent> = safetyParts): DiagnosisEngine {
+        val engine = DiagnosisEngine(DiagnosisSession(BoardType.SMPS, "s"))
+        engine.loadMapping(parts)
+        engine.loadHypotheses(incremental, requests)
+        return engine
+    }
+
+    @Test
+    fun `las confianzas del modelo que suman menos de 1 se muestran tal cual`() {
+        val engine = incrementalEngine(listOf(coldA))
+        assertEquals(0.55, engine.session.hypotheses.first().confidence, 1e-9)
+    }
+
+    @Test
+    fun `las que suman mas de 1 se achican`() {
+        val engine = DiagnosisEngine(DiagnosisSession(BoardType.SMPS, "s"))
+        engine.loadMapping(safetyParts)
+        engine.loadHypotheses(safetyHypotheses.map { it.copy(confidence = it.confidence * 2) }, listOf(coldA))
+        assertEquals(1.0, engine.session.hypotheses.sumOf { it.confidence }, 1e-9)
+    }
+
+    @Test
+    fun `una lectura anormal sobre la lider da veredicto sin medir el resto`() {
+        val engine = incrementalEngine(listOf(coldA, coldB))
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        assertEquals("c1", engine.session.verdictComponentId)
+        assertEquals(1, engine.session.results.size)
+    }
+
+    @Test
+    fun `una lectura anormal despues de una normal sobre la misma hipotesis igual la confirma`() {
+        val requests = listOf(coldA, measurement("v1", MeasurementKind.VOLTAGE_DC))
+        val engine = incrementalEngine(requests)
+        engine.answer(MeasurementOutcome.NORMAL)
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        assertEquals("c1", engine.session.verdictComponentId)
+        assertFalse(engine.session.hypotheses.single { it.id == "h1" }.ruledOut)
+    }
+
+    @Test
+    fun `sin encontrar la falla crece la otra causa y el plan suma hipotesis que lideran`() {
+        val engine = incrementalEngine(listOf(coldA))
+        engine.answer(MeasurementOutcome.NORMAL)
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        val nueva = Hypothesis("h5", "Conector", "c3", 0.5, "")
+        engine.applyPlan(SparkPlan(
+            hypotheses = listOf(nueva),
+            requests = listOf(measurement("m9", MeasurementKind.CONTINUITY, "h5").copy(componentId = "c3")),
+        ))
+        assertEquals("h5", engine.session.hypotheses.first().id)
+        assertEquals(listOf("m9"), engine.session.pendingRequests.map { it.id })
+        engine.startMeasuring()
+        engine.confirmSafety()
+        engine.submitResult(MeasurementResult("m9", MeasurementOutcome.ABNORMAL))
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        assertEquals("c3", engine.session.verdictComponentId)
+    }
+
+    @Test
+    fun `una hipotesis nueva con un id repetido no pisa la que ya estaba`() {
+        val engine = incrementalEngine(listOf(coldA))
+        engine.answer(MeasurementOutcome.NORMAL)
+        engine.applyPlan(SparkPlan(hypotheses = listOf(Hypothesis("h1", "otra", "c2", 0.5, ""))))
+        assertEquals("t1", engine.session.hypotheses.single { it.id == "h1" }.title)
+    }
+
+    @Test
+    fun `el dano que aparece en el plan revive la hipotesis y frena las mediciones con tension`() {
+        val engine = incrementalEngine(listOf(coldA))
+        engine.answer(MeasurementOutcome.NORMAL)
+        engine.applyPlan(SparkPlan(
+            damages = mapOf("c1" to "Tapa abombada"),
+            requests = listOf(measurement("v9", MeasurementKind.VOLTAGE_DC, "h2")),
+        ))
+        val h1 = engine.session.hypotheses.single { it.id == "h1" }
+        assertFalse(h1.ruledOut)
+        assertEquals("h1", engine.session.hypotheses.first().id)
+        assertEquals("Tapa abombada", engine.session.components.single { it.id == "c1" }.visibleDamage)
+        assertTrue(engine.session.pendingRequests.isEmpty())
+    }
+
+    @Test
+    fun `con dano a la vista el tecnico puede dar el veredicto aunque todo mida normal`() {
+        val parts = safetyParts.map { if (it.id == "c1") it.copy(visibleDamage = "Abombado") else it }
+        val engine = incrementalEngine(listOf(coldA), parts)
+        engine.answer(MeasurementOutcome.NORMAL)
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        engine.acceptVisibleDamage("c1")
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        assertEquals("c1", engine.session.verdictComponentId)
+    }
+
+    @Test
+    fun `sin dano visible no hay veredicto a pedido`() {
+        val engine = incrementalEngine(listOf(coldA))
+        engine.answer(MeasurementOutcome.NORMAL)
+        assertThrows(IllegalArgumentException::class.java) { engine.acceptVisibleDamage("c1") }
     }
 
     @Test

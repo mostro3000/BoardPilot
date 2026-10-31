@@ -73,6 +73,8 @@ interface AppStrings {
     val noMeasurementsLive: String
     val measuredNoVerdict: String
     val liveBlocked: String
+    val otherCause: String
+    fun visualVerdict(designator: String): String
     val askMeasurements: String
     val askingMeasurements: String
     val askFailed: String
@@ -270,12 +272,14 @@ object EsStrings : AppStrings {
     override val nextStepHint = "BoardPilot te guía una medición por vez: dónde poner las puntas, qué tenés que ver en el multímetro y la compuerta de seguridad antes de cada una."
     override fun firstMeasurement(kind: String, designator: String) = "Primera: $kind en $designator"
     override val noMeasurementsLive = "Muse Spark todavía no propuso mediciones. Pedíselas: te va a decir qué medir para confirmar o descartar estas hipótesis."
-    override val measuredNoVerdict = "Las mediciones hechas no alcanzaron para un veredicto. Pedí las siguientes: Muse Spark las elige con estos resultados."
+    override val measuredNoVerdict = "Las mediciones hechas no alcanzaron para un veredicto. Pedí las siguientes: Muse Spark las elige con estos resultados y puede sumar otras causas."
     override val askMeasurements = "Pedir mediciones a Muse Spark"
     override val askingMeasurements = "Muse Spark está eligiendo qué medir..."
     override val askFailed = "No se pudieron pedir las mediciones. Revisá la conexión y tu clave, y reintentá."
     override val startOver = "Empezar de nuevo"
     override val liveBlocked = "solo propuso mediciones con tensión. BoardPilot no las guía hasta tener un chequeo sin tensión correcto, ni con daño visible o una falla sin reparar. Pedí otras mediciones o reparalo primero."
+    override val otherCause = "Otra causa, todavía sin identificar"
+    override fun visualVerdict(designator: String) = "Dar por fallada la pieza $designator: el daño se ve"
     override val fixLabel = "Si se confirma"
     override val measurementTitle = "Medición"
     override val normalLabel = "Normal"
@@ -530,12 +534,14 @@ object EnStrings : AppStrings {
     override val nextStepHint = "BoardPilot guides one measurement at a time: where to put the probes, what the meter should show and the safety gate before each one."
     override fun firstMeasurement(kind: String, designator: String) = "First: $kind on $designator"
     override val noMeasurementsLive = "Muse Spark has not proposed measurements yet. Ask for them: it will tell you what to measure to confirm or rule out these hypotheses."
-    override val measuredNoVerdict = "The measurements so far were not enough for a verdict. Ask for the next ones: Muse Spark picks them using these results."
+    override val measuredNoVerdict = "The measurements so far were not enough for a verdict. Ask for the next ones: Muse Spark picks them using these results and may add other causes."
     override val askMeasurements = "Ask Muse Spark for measurements"
     override val askingMeasurements = "Muse Spark is choosing what to measure..."
     override val askFailed = "Could not get measurements. Check your connection and key, then retry."
     override val startOver = "Start over"
     override val liveBlocked = "it only proposed live measurements. BoardPilot does not guide them until a check without power has come out right, nor while there is visible damage or an unrepaired fault. Ask for other measurements or repair it first."
+    override val otherCause = "Another cause, not identified yet"
+    override fun visualVerdict(designator: String) = "Mark $designator as failed: the damage is visible"
     override val fixLabel = "If confirmed"
     override val measurementTitle = "Measurement"
     override val normalLabel = "Normal"

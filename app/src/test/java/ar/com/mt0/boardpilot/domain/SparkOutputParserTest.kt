@@ -8,6 +8,40 @@ import org.junit.Test
 
 class SparkOutputParserTest {
 
+    @Test
+    fun `el plan suma hipotesis nuevas, dano y mediciones sobre ellas`() {
+        val parts = listOf(
+            BoardComponent("c1", "CYL 1", ComponentKind.OTHER, NormBox(0.1f, 0.1f, 0.1f, 0.1f)),
+            BoardComponent("c2", "RECT 2", ComponentKind.OTHER, NormBox(0.5f, 0.5f, 0.1f, 0.1f)),
+        )
+        val previas = listOf(Hypothesis("h1", "Vieja", "c1", 0.1, ""))
+        val plan = SparkOutputParser.parsePlan(
+            """{"damages":[{"componentId":"CYL 1","damage":"Tapa abombada"},{"componentId":"nada","damage":"x"}],
+            "newHypotheses":[{"id":"h5","title":"Conector","componentId":"c2","confidence":0.5,"rationale":"r h1","fix":"Si se confirma, resoldar"},
+            {"id":"h1","title":"Id repetido","componentId":"c2","confidence":0.3},
+            {"id":"h7","title":"Sin pieza","componentId":"zz"},
+            {"id":"h8","title":"Sobra","componentId":"c1"}],
+            "measurements":[{"id":"m1","componentId":"c2","kind":"CONTINUITY","instruction":"i","targetHypothesisId":"h5"}],
+            "needMoreEvidence":""}""",
+            parts, previas, emptySet(),
+        )
+        assertEquals(listOf("h5", "h1b"), plan.hypotheses.map { it.id })
+        assertEquals("Resoldar", plan.hypotheses.first().fix)
+        assertEquals(mapOf("c1" to "Tapa abombada"), plan.damages)
+        assertEquals("h5", plan.requests.single().targetHypothesisId)
+    }
+
+    @Test
+    fun `un plan sin nada nuevo sigue funcionando`() {
+        val parts = listOf(BoardComponent("c1", "CYL 1", ComponentKind.OTHER, NormBox(0.1f, 0.1f, 0.1f, 0.1f)))
+        val plan = SparkOutputParser.parsePlan(
+            """{"measurements":[],"needMoreEvidence":"Sacá otra foto"}""", parts,
+            listOf(Hypothesis("h1", "Vieja", "c1", 0.1, "")), emptySet(),
+        )
+        assertTrue(plan.hypotheses.isEmpty() && plan.damages.isEmpty() && plan.requests.isEmpty())
+        assertEquals("Sacá otra foto", plan.needMoreEvidence)
+    }
+
     private val components = listOf(
         BoardComponent("trf1-sam0", "TRF 1", ComponentKind.TRANSFORMER,
             NormBox(0.27f, 0.47f, 0.32f, 0.05f)),

@@ -44,7 +44,7 @@ for another measurement or photo instead of inventing an answer.
    applies that type's typical failures and measurement strategy (versioned playbooks
    in `app/src/main/resources/playbooks.json`). Faults a multimeter cannot fix
    (firmware, BGA, the panel) come back as advice instead of hypotheses.
-5. **Guided measurements** — one at a time: continuity, resistance, diode test or DC
+5. **Guided measurements** — one at a time, and only those that can change the decision: continuity, resistance, diode test or DC
    voltage, with what a normal vs. abnormal reading looks like. Every measurement is
    behind a **safety gate chosen by the code, never by the model**, and each result
    updates the hypotheses deterministically. A **visual guide** shows a magnified

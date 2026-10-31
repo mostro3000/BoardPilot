@@ -16,10 +16,14 @@ data class SparkDiagnosis(
     val boardType: BoardType? = null,
 )
 
-/** Siguientes mediciones pedidas a Muse Spark sobre hipotesis ya cargadas. */
+/** Como seguir segun Muse Spark: mediciones siguientes y lo nuevo que encontro. */
 data class SparkPlan(
     val requests: List<MeasurementRequest> = emptyList(),
     val needMoreEvidence: String? = null,
+    /** Causas nuevas, si las anteriores quedaron descartadas. */
+    val hypotheses: List<Hypothesis> = emptyList(),
+    /** Dano visible hallado al seguir analizando: id -> descripcion localizada. */
+    val damages: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -42,6 +46,7 @@ object SparkOutputParser {
     private const val MAX_HYPOTHESES = 4
     private const val MAX_MEASUREMENTS = 5
     private const val MAX_PLAN = 3
+    private const val MAX_NEW_HYPOTHESES = 2
 
     /** Id reservado para el dano visible que SAM no llego a encuadrar. */
     const val UNMAPPED_DAMAGE_ID = "dmg1-spark"
@@ -74,43 +79,8 @@ object SparkOutputParser {
         val reserved = extraComponents.firstOrNull()?.id
 
         // Dano visible sobre componentes ya mapeados por SAM.
-        (root["damages"] as? List<*>).orEmpty().forEach { raw ->
-            val m = raw as? Map<*, *> ?: return@forEach
-            val id = resolve(m.str("componentId"), known, reserved) ?: return@forEach
-            val damage = m.str("damage")?.takeIf { it.isNotBlank() } ?: return@forEach
-            damages.putIfAbsent(id, damage)
-        }
-
-        val usedHypIds = mutableSetOf<String>()
-        val parsedHypotheses = (root["hypotheses"] as? List<*>).orEmpty()
-            .mapIndexedNotNull { index, raw ->
-                val m = raw as? Map<*, *> ?: return@mapIndexedNotNull null
-                val componentId = resolve(m.str("componentId"), known, reserved)
-                    ?: return@mapIndexedNotNull null
-                val title = m.str("title")?.takeIf { it.isNotBlank() }
-                    ?: return@mapIndexedNotNull null
-                var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "h${index + 1}"
-                while (id in usedHypIds) id += "b"
-                usedHypIds += id
-                Hypothesis(
-                    id = id,
-                    title = title,
-                    componentId = componentId,
-                    confidence = (m["confidence"] as? Number)?.toDouble()
-                        ?.coerceIn(0.01, 0.99) ?: 0.25,
-                    rationale = m.str("rationale").orEmpty(),
-                    fix = m.firstStr("fix", "replacement", "repair").orEmpty(),
-                )
-            }
-            .take(MAX_HYPOTHESES)
-            .map { it.copy(title = humanize(it.title, emptyList(), known)) }
-        // Textos para el tecnico: sin ids internos y el arreglo como accion directa.
-        val hypotheses = parsedHypotheses.map {
-            it.copy(
-                rationale = humanize(it.rationale, parsedHypotheses, known),
-                fix = cleanFix(humanize(it.fix, parsedHypotheses, known)),
-            )
-        }
+        damages.putAll(parseDamages(root["damages"], known, reserved).filterKeys { it !in damages })
+        val hypotheses = parseHypotheses(root["hypotheses"], known, reserved, emptySet(), MAX_HYPOTHESES)
 
         return SparkDiagnosis(
             hypotheses = hypotheses,
@@ -122,6 +92,61 @@ object SparkOutputParser {
             extraComponents = extraComponents,
             boardType = parseBoardType(root.str("boardType")),
         )
+    }
+
+    private fun parseDamages(
+        raw: Any?,
+        components: List<BoardComponent>,
+        reserved: String?,
+    ): Map<String, String> {
+        val damages = LinkedHashMap<String, String>()
+        (raw as? List<*>).orEmpty().forEach { item ->
+            val m = item as? Map<*, *> ?: return@forEach
+            val id = resolve(m.str("componentId"), components, reserved) ?: return@forEach
+            val damage = m.str("damage")?.takeIf { it.isNotBlank() } ?: return@forEach
+            damages.putIfAbsent(id, damage)
+        }
+        return damages
+    }
+
+    /** Hipotesis validadas, con ids que no chocan con [takenIds] y textos sin ids internos. */
+    private fun parseHypotheses(
+        raw: Any?,
+        components: List<BoardComponent>,
+        reserved: String?,
+        takenIds: Set<String>,
+        limit: Int,
+    ): List<Hypothesis> {
+        val usedIds = takenIds.toMutableSet()
+        val parsed = (raw as? List<*>).orEmpty()
+            .mapIndexedNotNull { index, item ->
+                val m = item as? Map<*, *> ?: return@mapIndexedNotNull null
+                val componentId = resolve(m.str("componentId"), components, reserved)
+                    ?: return@mapIndexedNotNull null
+                val title = m.str("title")?.takeIf { it.isNotBlank() }
+                    ?: return@mapIndexedNotNull null
+                var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "h${index + 1}"
+                while (id in usedIds) id += "b"
+                usedIds += id
+                Hypothesis(
+                    id = id,
+                    title = title,
+                    componentId = componentId,
+                    confidence = (m["confidence"] as? Number)?.toDouble()
+                        ?.coerceIn(0.01, 0.99) ?: 0.25,
+                    rationale = m.str("rationale").orEmpty(),
+                    fix = m.firstStr("fix", "replacement", "repair").orEmpty(),
+                )
+            }
+            .take(limit)
+            .map { it.copy(title = humanize(it.title, emptyList(), components)) }
+        // Textos para el tecnico: sin ids internos y el arreglo como accion directa.
+        return parsed.map {
+            it.copy(
+                rationale = humanize(it.rationale, parsed, components),
+                fix = cleanFix(humanize(it.fix, parsed, components)),
+            )
+        }
     }
 
     /** Tipo de placa como lo escribe el modelo: el nombre exacto o un sinonimo (ES/EN). */
@@ -155,8 +180,9 @@ object SparkOutputParser {
     }
 
     /**
-     * Siguientes mediciones sobre las [hypotheses] ya cargadas; los ids nuevos
-     * no repiten ninguno de [takenIds] (mediciones pendientes o ya hechas).
+     * Como seguir: causas nuevas ademas de las [hypotheses] ya cargadas, dano visible
+     * y las siguientes mediciones sobre unas u otras; los ids de medicion no repiten
+     * ninguno de [takenIds] (mediciones pendientes o ya hechas).
      */
     fun parsePlan(
         text: String,
@@ -165,11 +191,17 @@ object SparkOutputParser {
         takenIds: Set<String>,
     ): SparkPlan {
         val root = parseRoot(text) ?: return SparkPlan()
+        val fresh = parseHypotheses(
+            root["newHypotheses"], components, null, hypotheses.map { it.id }.toSet(), MAX_NEW_HYPOTHESES,
+        )
+        val all = hypotheses + fresh
         return SparkPlan(
-            requests = requests(root["measurements"], components, null, hypotheses, takenIds)
+            requests = requests(root["measurements"], components, null, all, takenIds)
                 .take(MAX_PLAN),
             needMoreEvidence = root.str("needMoreEvidence")?.takeIf { it.isNotBlank() }
-                ?.let { humanize(it, hypotheses, components) },
+                ?.let { humanize(it, all, components) },
+            hypotheses = fresh,
+            damages = parseDamages(root["damages"], components, null),
         )
     }
 

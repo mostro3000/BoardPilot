@@ -44,7 +44,7 @@ medición o foto en vez de inventar.
    eligió el técnico, y aplica las fallas típicas y la estrategia de medición de ese tipo
    (guías versionadas en `app/src/main/resources/playbooks.json`). Las fallas que no se
    arreglan con tester (firmware, BGA, el panel) vuelven como consejo, no como hipótesis.
-5. **Mediciones guiadas** — una por vez: continuidad, resistencia, diodo o tensión DC, con
+5. **Mediciones guiadas** — una por vez, y solo las que pueden cambiar la decisión: continuidad, resistencia, diodo o tensión DC, con
    qué lectura es normal o anormal. Cada medición pasa por una **compuerta de seguridad
    que fija el código, nunca el modelo**, y cada resultado actualiza las hipótesis de
    forma determinística. Una **guía visual** muestra una lupa del componente junto a las

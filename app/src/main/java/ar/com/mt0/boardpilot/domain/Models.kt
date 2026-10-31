@@ -52,6 +52,8 @@ data class Hypothesis(
     val confirmedByMeasurement: Boolean = false,
     /** Que reemplazar o reparar si se confirma (sugerencia del modelo; puede faltar). */
     val fix: String = "",
+    /** Una medicion dio normal sobre ella: sigue en la lista, tachada. */
+    val ruledOut: Boolean = false,
 )
 
 enum class MeasurementKind { CONTINUITY, RESISTANCE, VOLTAGE_DC, DIODE }
