@@ -3,6 +3,7 @@ package ar.com.mt0.boardpilot.i18n
 import ar.com.mt0.boardpilot.domain.ComponentKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LanguageResolutionTest {
@@ -33,6 +34,18 @@ class LanguageResolutionTest {
         assertNotEquals(es.appTagline, en.appTagline)
         assertNotEquals(es.needKey, en.needKey)
         assertNotEquals(es.verifiedOk, en.verifiedOk)
+    }
+
+    @Test
+    fun `el aviso de Contributor dice que Meta puede entrenar y prohibe datos personales`() {
+        val es = appStrings(AppLanguage.ES)
+        val en = appStrings(AppLanguage.EN)
+        for (texto in listOf(es.contributorDialogText, es.sparkModeContributorHint, es.contributorReminder)) {
+            assertTrue(texto, "entrenar" in texto && "personales" in texto && "confidenciales" in texto)
+        }
+        for (texto in listOf(en.contributorDialogText, en.sparkModeContributorHint, en.contributorReminder)) {
+            assertTrue(texto, "train" in texto && "personal" in texto && "confidential" in texto)
+        }
     }
 
     @Test

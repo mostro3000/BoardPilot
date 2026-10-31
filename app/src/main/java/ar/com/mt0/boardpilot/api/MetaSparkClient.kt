@@ -14,6 +14,7 @@ import ar.com.mt0.boardpilot.domain.MeasurementResult
 import ar.com.mt0.boardpilot.domain.ReasoningEffort
 import ar.com.mt0.boardpilot.domain.SparkCandidates
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
+import ar.com.mt0.boardpilot.domain.SparkMode
 import ar.com.mt0.boardpilot.i18n.AppLanguage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,6 +40,7 @@ class MetaSparkClient(
     private val apiKey: String,
     private val baseUrl: String = "https://api.meta.ai/v1",
     private val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    private val mode: SparkMode = SparkMode.DEFAULT,
 ) {
     /**
      * Pre-escaneo dedicado de dano visible sobre la foto LIMPIA. Pregunta
@@ -52,7 +54,7 @@ class MetaSparkClient(
     ): List<DamageFinding> = withContext(Dispatchers.IO) {
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
         val body = JSONObject().apply {
-            put("model", "muse-spark-1.3")
+            put("model", mode.modelId)
             put("max_tokens", 6000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)
@@ -103,7 +105,7 @@ class MetaSparkClient(
             "Candidate components from segmentation (kind is a rough visual guess):\n" +
             candidatesJson.toString()
         val body = JSONObject().apply {
-            put("model", "muse-spark-1.3")
+            put("model", mode.modelId)
             put("max_tokens", 12000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)
@@ -178,7 +180,7 @@ class MetaSparkClient(
             "\nCurrent hypotheses:\n" + hypothesesJson + "\n" +
             "Measurements already done:\n" + doneJson
         val body = JSONObject().apply {
-            put("model", "muse-spark-1.3")
+            put("model", mode.modelId)
             put("max_tokens", 12000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)
@@ -231,7 +233,7 @@ class MetaSparkClient(
             "Measurements:\n" + measurementsJson
         val annotated = annotate(bitmap, shown)
         val body = JSONObject().apply {
-            put("model", "muse-spark-1.3")
+            put("model", mode.modelId)
             put("max_tokens", 12000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)

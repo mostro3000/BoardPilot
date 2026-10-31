@@ -71,12 +71,13 @@ ids out of the texts the technician reads.
 | Model | Endpoint | Role |
 |---|---|---|
 | `sam-3.1` | `POST /v1/responses` (streaming) | Component segmentation → overlay and candidate list |
-| `muse-spark-1.3` | `POST /v1/chat/completions` (multimodal) | Damage pre-scan, ranked hypotheses with fixes, measurement plans and re-planning, probe placement |
+| `muse-spark-1.3` (optional, opt-in: `muse-spark-1.3-contributor`) | `POST /v1/chat/completions` (multimodal) | Damage pre-scan, ranked hypotheses with fixes, measurement plans and re-planning, probe placement |
 | `muse-image-1.0` | `POST /v1/responses` | Reference image of the repaired board |
 
 Each model is part of the core loop: without SAM there is no component map, without
 Muse Spark there is no diagnosis, without Muse Image there is no repair reference. The
-reasoning effort for Muse Spark is configurable in Settings (Auto by default).
+reasoning effort for Muse Spark is configurable in Settings (Auto by default), which also
+offers an optional Contributor mode: see [Privacy and your key](#privacy-and-your-key).
 
 ## Built during the event (Oct 27 – Nov 4, 2026)
 
@@ -101,6 +102,8 @@ documentation only before it); commit dates are the evidence.
   APK and AAB in `release/` (`./gradlew signedRelease`, with the signing keys kept out of
   the repository); the verdict and the board map name the component type in the app's
   language.
+- **Oct 31** — opt-in Contributor mode for Muse Spark, behind an explicit notice (Standard
+  stays the default); privacy summary in the app's About screen.
 
 ## Try it
 
@@ -183,10 +186,25 @@ the model, and AC/mains measurements are never guided.
 
 ## Privacy and your key
 
-No accounts and no backend of ours: projects, photos and sessions stay in the app's
-private storage, and app backups are disabled. The only network calls go from the phone
-to `https://api.meta.ai/v1` with the key each user loads on their own device. No key is
-ever embedded in the APK or in this repository.
+This section is BoardPilot's privacy policy; the app shows a summary in its About screen.
+
+**What BoardPilot collects:** nothing. It has no accounts, no backend of ours, no analytics
+and no advertising. Projects, photos and sessions stay in the app's private storage, and
+app backups are disabled.
+
+**What leaves the phone:** board photos, symptoms and measurement results, only when you
+ask for an analysis, and only to the Meta Model API (`https://api.meta.ai/v1`), with the
+key you load on your own device. Meta handles them under its
+[terms](https://dev.meta.ai/legal/terms-of-service). No key is ever embedded in the APK or
+in this repository.
+
+**Muse Spark mode:** in **Standard** mode, the default, Meta does not use this content to
+train its models. **Contributor** mode costs much less, but Meta may use what you send and
+what it answers to train its models, including earlier photos and text from a repair you
+continue in this mode. It stays off unless you turn it on in Settings and accept the
+notice. In that mode you must not send personal or confidential information (check that
+photos show no names or customer labels), and you should use it only if Meta's terms allow
+it in your country. SAM 3.1 and Muse Image have no Contributor variant.
 
 ## Limitations
 

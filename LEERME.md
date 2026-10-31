@@ -68,12 +68,13 @@ estables y saca los ids internos de los textos que lee el técnico.
 | Modelo | Endpoint | Rol |
 |---|---|---|
 | `sam-3.1` | `POST /v1/responses` (streaming) | Segmentación de componentes → overlay y lista de candidatos |
-| `muse-spark-1.3` | `POST /v1/chat/completions` (multimodal) | Pre-escaneo de daño, hipótesis con su reemplazo, plan de mediciones y replanificación, ubicación de las puntas |
+| `muse-spark-1.3` (opcional, a elección del usuario: `muse-spark-1.3-contributor`) | `POST /v1/chat/completions` (multimodal) | Pre-escaneo de daño, hipótesis con su reemplazo, plan de mediciones y replanificación, ubicación de las puntas |
 | `muse-image-1.0` | `POST /v1/responses` | Imagen de referencia de la placa reparada |
 
 Cada modelo es parte del núcleo del flujo: sin SAM no hay mapa de componentes, sin Muse
 Spark no hay diagnóstico y sin Muse Image no hay referencia de la reparación. El esfuerzo
-de razonamiento de Muse Spark se configura en Configuración (Auto por defecto).
+de razonamiento de Muse Spark se configura en Configuración (Auto por defecto), que además
+ofrece un modo Contributor opcional: ver [Privacidad y tu clave](#privacidad-y-tu-clave).
 
 ## Construido durante el evento (27 oct – 4 nov de 2026)
 
@@ -101,6 +102,8 @@ son la evidencia.
   AAB de release firmados en `release/` (`./gradlew signedRelease`, con las claves de firma
   fuera del repositorio); el veredicto y el mapa nombran el tipo de componente en el idioma
   de la app.
+- **31 oct** — modo Contributor opcional para Muse Spark, con un aviso explícito (Estándar
+  sigue por defecto); resumen de privacidad en Acerca de.
 
 ## Probarla
 
@@ -184,10 +187,27 @@ modelo, y nunca se guían mediciones en alterna.
 
 ## Privacidad y tu clave
 
-Sin cuentas ni servidor propio: proyectos, fotos y sesiones quedan en el almacenamiento
-privado de la app, y los backups de la app están desactivados. Las únicas llamadas de red
-van del teléfono a `https://api.meta.ai/v1` con la clave que cada usuario carga en su
-dispositivo. La clave nunca se embebe en el APK ni en este repositorio.
+Esta sección es la política de privacidad de BoardPilot; la app muestra un resumen en Acerca
+de.
+
+**Qué recoge BoardPilot:** nada. No tiene cuentas, ni servidor propio, ni analíticas, ni
+publicidad. Proyectos, fotos y sesiones quedan en el almacenamiento privado de la app, y los
+backups de la app están desactivados.
+
+**Qué sale del teléfono:** fotos de placas, síntomas y resultados de mediciones, solo cuando
+pedís un análisis y solo hacia la Meta Model API (`https://api.meta.ai/v1`), con la clave que
+cargás en tu dispositivo. Meta los trata según sus
+[términos](https://dev.meta.ai/legal/terms-of-service). La clave nunca se embebe en el APK ni
+en este repositorio.
+
+**Modo de Muse Spark:** en modo **Estándar**, el de por defecto, Meta no usa este contenido
+para entrenar sus modelos. El modo **Contributor** cuesta mucho menos, pero Meta puede usar
+lo que envíes y lo que responda para entrenar sus modelos, también fotos y textos anteriores
+de una reparación que sigas en este modo. Queda apagado salvo que lo actives en Configuración
+y aceptes el aviso. En ese modo no podés enviar datos personales ni confidenciales (revisá
+que las fotos no muestren nombres ni etiquetas de clientes), y conviene usarlo solo si las
+condiciones de Meta lo permiten en tu país. SAM 3.1 y Muse Image no tienen variante
+Contributor.
 
 ## Limitaciones
 

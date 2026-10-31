@@ -60,6 +60,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -182,6 +183,7 @@ import ar.com.mt0.boardpilot.domain.MeasurementResult
 import ar.com.mt0.boardpilot.domain.SamBox
 import ar.com.mt0.boardpilot.domain.SamOutputParser
 import ar.com.mt0.boardpilot.domain.SparkDamageParser
+import ar.com.mt0.boardpilot.domain.SparkMode
 import ar.com.mt0.boardpilot.domain.SparkOutputParser
 import ar.com.mt0.boardpilot.domain.SparkPlan
 import ar.com.mt0.boardpilot.domain.Stage
@@ -222,6 +224,7 @@ private const val PREF_API_KEY = "model_api_key"
 private const val PREF_LANGUAGE = "language_mode"
 private const val PREF_THEME = "theme_mode"
 private const val PREF_EFFORT = "reasoning_effort"
+private const val PREF_SPARK_MODE = "spark_mode"
 /** Lado mayor de la miniatura de cada proyecto en la lista. */
 private const val THUMB_PX = 192
 private const val APP_AUTHOR = "Mauricio Tagliaferro"
@@ -351,6 +354,9 @@ fun BoardPilotApp(
     val strings = appStrings(language)
     var reasoningEffort by remember {
         mutableStateOf(ReasoningEffort.fromStored(prefs.getString(PREF_EFFORT, null)))
+    }
+    var sparkMode by remember {
+        mutableStateOf(SparkMode.fromStored(prefs.getString(PREF_SPARK_MODE, null)))
     }
 
     var hasApiKey by remember {
@@ -743,7 +749,7 @@ fun BoardPilotApp(
         photoScope.launch {
             try {
                 val components = engine.session.components
-                val text = MetaSparkClient(key, reasoningEffort = reasoningEffort)
+                val text = MetaSparkClient(key, reasoningEffort = reasoningEffort, mode = sparkMode)
                     .probeGuides(bmp, components, missing, language)
                 // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                 if (engines[id] === engine) {
@@ -780,7 +786,7 @@ fun BoardPilotApp(
         sparkBusy += id
         photoScope.launch {
             try {
-                val client = MetaSparkClient(key, reasoningEffort = reasoningEffort)
+                val client = MetaSparkClient(key, reasoningEffort = reasoningEffort, mode = sparkMode)
                 // 1) Pre-escaneo de dano sobre la foto limpia (pregunta
                 //    directa); si falla, el diagnostico sigue sin el.
                 val findings = runCatching { client.scanDamage(bmp, language) }
@@ -864,7 +870,7 @@ fun BoardPilotApp(
         planBusy += id
         photoScope.launch {
             try {
-                val plan = planFor(MetaSparkClient(key, reasoningEffort = reasoningEffort), bmp, engine)
+                val plan = planFor(MetaSparkClient(key, reasoningEffort = reasoningEffort, mode = sparkMode), bmp, engine)
                 // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                 if (engines[id] !== engine) return@launch
                 if (plan.requests.isNotEmpty()) {
@@ -1044,6 +1050,10 @@ fun BoardPilotApp(
                 reasoningEffort = selected
                 prefs.edit().putString(PREF_EFFORT, selected.name).apply()
             }
+            SparkModeCard(strings, sparkMode) { selected ->
+                sparkMode = selected
+                prefs.edit().putString(PREF_SPARK_MODE, selected.name).apply()
+            }
             if (hasApiKey) ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
         } else if (currentProject == null) {
             Text(strings.appTagline, fontWeight = FontWeight.Medium)
@@ -1115,6 +1125,7 @@ fun BoardPilotApp(
                         } else if (boardBitmap == null) {
                             Text(strings.needPhoto, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        ContributorReminder(strings, sparkMode)
                         Button(
                             onClick = { startDiagnosis(project, boardTypeDraft) },
                             enabled = ready && symptomDraft.isNotBlank(),
@@ -1137,6 +1148,7 @@ fun BoardPilotApp(
                         onMapRequest = { startMapping(project) },
                         sparkBusy = project.id in sparkBusy,
                         onSparkRequest = { startSpark(project) },
+                        sparkMode = sparkMode,
                         note = sparkNotes[project.id],
                         planBusy = project.id in planBusy,
                         onAskMeasurements = { askMeasurements(project) },
@@ -1341,6 +1353,79 @@ private fun ReasoningCard(
     }
 }
 
+/**
+ * Standard o Contributor. Contributor nunca se activa de un toque: como Meta puede
+ * entrenar con lo que se envia, pide aceptar el aviso. Volver a Standard es inmediato.
+ */
+@Composable
+private fun SparkModeCard(strings: AppStrings, mode: SparkMode, onSelect: (SparkMode) -> Unit) {
+    var askConfirm by rememberSaveable { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(strings.sparkModeTitle, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    strings.sparkModeStandard to SparkMode.STANDARD,
+                    strings.sparkModeContributor to SparkMode.CONTRIBUTOR,
+                ).forEach { (label, value) ->
+                    val onClick: () -> Unit = {
+                        if (value == SparkMode.CONTRIBUTOR && mode != value) {
+                            askConfirm = true
+                        } else {
+                            onSelect(value)
+                        }
+                    }
+                    val btnModifier = Modifier.weight(1f)
+                    val btnPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    if (value == mode) {
+                        Button(onClick = onClick, modifier = btnModifier, contentPadding = btnPadding) {
+                            Text(label, maxLines = 1)
+                        }
+                    } else {
+                        OutlinedButton(onClick = onClick, modifier = btnModifier, contentPadding = btnPadding) {
+                            Text(label, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            if (mode == SparkMode.CONTRIBUTOR) {
+                Text(strings.sparkModeContributorHint, color = MaterialTheme.colorScheme.secondary)
+            } else {
+                Text(strings.sparkModeStandardHint)
+            }
+        }
+    }
+    if (askConfirm) {
+        AlertDialog(
+            onDismissRequest = { askConfirm = false },
+            title = { Text(strings.contributorDialogTitle) },
+            // Con desplazamiento: con la letra grande del sistema el aviso no entra.
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(strings.contributorDialogText)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    askConfirm = false
+                    onSelect(SparkMode.CONTRIBUTOR)
+                }) { Text(strings.contributorAccept) }
+            },
+            dismissButton = {
+                TextButton(onClick = { askConfirm = false }) { Text(strings.contributorCancel) }
+            },
+        )
+    }
+}
+
+/** Recordatorio justo antes de enviar: en Contributor, Meta puede entrenar con esto. */
+@Composable
+private fun ContributorReminder(strings: AppStrings, mode: SparkMode) {
+    if (mode == SparkMode.CONTRIBUTOR) {
+        Text(strings.contributorReminder, fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
+    }
+}
+
 @Composable
 private fun LanguageCard(
     strings: AppStrings,
@@ -1539,6 +1624,12 @@ private fun AboutContent(
                     )
                 }
             }
+        }
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(strings.privacyTitle, fontWeight = FontWeight.Bold)
+            Text(strings.privacyText)
         }
     }
 }
@@ -1780,6 +1871,7 @@ private fun SessionContent(
     onMapRequest: () -> Unit,
     sparkBusy: Boolean,
     onSparkRequest: () -> Unit,
+    sparkMode: SparkMode,
     note: String?,
     planBusy: Boolean,
     onAskMeasurements: () -> Unit,
@@ -1860,6 +1952,7 @@ private fun SessionContent(
 
         Stage.MAPPING -> {
             Text(strings.liveMappingNote)
+            ContributorReminder(strings, sparkMode)
             Button(
                 onClick = onSparkRequest,
                 enabled = !sparkBusy,

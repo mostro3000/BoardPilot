@@ -31,6 +31,19 @@ interface AppStrings {
     val themeDark: String
     val reasoningTitle: String
     val reasoningHint: String
+    // Modo de Muse Spark: Contributor es opcional y pide aceptar el aviso.
+    val sparkModeTitle: String
+    val sparkModeStandard: String
+    val sparkModeContributor: String
+    val sparkModeStandardHint: String
+    val sparkModeContributorHint: String
+    val contributorDialogTitle: String
+    val contributorDialogText: String
+    val contributorAccept: String
+    val contributorCancel: String
+    val contributorReminder: String
+    val privacyTitle: String
+    val privacyText: String
     val reasoningAuto: String
     val reasoningMinimal: String
     val reasoningLow: String
@@ -211,6 +224,18 @@ object EsStrings : AppStrings {
     override val themeAuto = "Auto"
     override val themeLight = "Claro"
     override val themeDark = "Oscuro"
+    override val sparkModeTitle = "Modo de Muse Spark"
+    override val sparkModeStandard = "Estándar"
+    override val sparkModeContributor = "Contributor"
+    override val sparkModeStandardHint = "Meta no entrena sus modelos con lo que envíes. Contributor cuesta mucho menos, pero Meta puede entrenar con tus fotos y textos."
+    override val sparkModeContributorHint = "⚠ Modo Contributor activo: Meta puede entrenar sus modelos con tus fotos, síntomas y mediciones. No envíes datos personales ni confidenciales."
+    override val contributorDialogTitle = "¿Activar el modo Contributor?"
+    override val contributorDialogText = "Muse Spark cuesta mucho menos, pero Meta puede usar para entrenar sus modelos lo que envíes y lo que responda: fotos de placas, síntomas y mediciones, también de reparaciones ya empezadas si las seguís en este modo.\n\nNo envíes datos personales ni confidenciales: revisá que las fotos no muestren nombres ni etiquetas de clientes.\n\nUsalo solo si las condiciones de Meta lo permiten en tu país. Podés volver a Estándar cuando quieras, pero lo ya enviado no se puede retirar desde la app."
+    override val contributorAccept = "Activar"
+    override val contributorCancel = "Cancelar"
+    override val contributorReminder = "⚠ Modo Contributor: Meta puede entrenar sus modelos con esta foto y estos textos. No incluyas datos personales ni confidenciales."
+    override val privacyTitle = "Privacidad"
+    override val privacyText = "BoardPilot no tiene cuentas ni servidor propio, y no recoge datos ni los usa para publicidad. Tus fotos, síntomas y mediciones se guardan en este teléfono y solo salen, con tu clave, hacia la Meta Model API cuando pedís un análisis. Meta los trata según sus términos: en modo Estándar no entrena sus modelos con ellos; en modo Contributor, que se activa solo si lo elegís en Configuración, sí puede."
     override val reasoningTitle = "Razonamiento (Muse Spark)"
     override val reasoningHint = "Más esfuerzo razona más en diagnósticos difíciles y gasta más tokens; Auto lo decide la API."
     override val reasoningAuto = "Auto"
@@ -453,6 +478,18 @@ object EnStrings : AppStrings {
     override val themeAuto = "Auto"
     override val themeLight = "Light"
     override val themeDark = "Dark"
+    override val sparkModeTitle = "Muse Spark mode"
+    override val sparkModeStandard = "Standard"
+    override val sparkModeContributor = "Contributor"
+    override val sparkModeStandardHint = "Meta does not train its models on what you send. Contributor costs much less, but Meta may train on your photos and text."
+    override val sparkModeContributorHint = "⚠ Contributor mode is on: Meta may train its models on your photos, symptoms and measurements. Do not send personal or confidential information."
+    override val contributorDialogTitle = "Turn on Contributor mode?"
+    override val contributorDialogText = "Muse Spark costs much less, but Meta may use what you send and what it answers to train its models: board photos, symptoms and measurements, including from repairs you already started if you continue them in this mode.\n\nDo not send personal or confidential information: check that photos show no names or customer labels.\n\nUse it only if Meta's terms allow it in your country. You can go back to Standard at any time, but what was already sent cannot be withdrawn from the app."
+    override val contributorAccept = "Turn on"
+    override val contributorCancel = "Cancel"
+    override val contributorReminder = "⚠ Contributor mode: Meta may train its models on this photo and this text. Do not include personal or confidential information."
+    override val privacyTitle = "Privacy"
+    override val privacyText = "BoardPilot has no accounts or server of its own, and it collects no data and uses none for advertising. Your photos, symptoms and measurements stay on this phone and only leave it, with your key, for the Meta Model API when you ask for an analysis. Meta handles them under its terms: in Standard mode it does not train its models on them; in Contributor mode, which is on only if you choose it in Settings, it may."
     override val reasoningTitle = "Reasoning (Muse Spark)"
     override val reasoningHint = "More effort reasons harder on tough diagnoses and spends more tokens; Auto lets the API decide."
     override val reasoningAuto = "Auto"
