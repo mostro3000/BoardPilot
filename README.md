@@ -14,7 +14,7 @@ app with no backend of its own**.
 
 ## Screenshots
 
-Real screens from a Samsung S25, diagnosing the author's own boards with the live models. The
+Real screens, diagnosing the author's own boards with the live models. The
 meter readings were entered by a script to walk through the flow: they are not real measurements.
 
 <table>

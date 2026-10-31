@@ -14,7 +14,7 @@ propio**.
 
 ## Capturas
 
-Pantallas reales de un Samsung S25, en inglés, diagnosticando placas propias del autor con los
+Pantallas reales, en inglés, diagnosticando placas propias del autor con los
 modelos en vivo. Las lecturas del multímetro las cargó un script para recorrer el flujo: no son
 mediciones reales.
 
