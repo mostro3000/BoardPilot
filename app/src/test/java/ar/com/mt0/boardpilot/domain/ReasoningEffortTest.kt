@@ -17,10 +17,11 @@ class ReasoningEffortTest {
     }
 
     @Test
-    fun `desde lo guardado con fallback a auto`() {
+    fun `desde lo guardado con fallback al maximo`() {
         assertEquals(ReasoningEffort.LOW, ReasoningEffort.fromStored("LOW"))
-        assertEquals(ReasoningEffort.AUTO, ReasoningEffort.fromStored(null))
-        assertEquals(ReasoningEffort.AUTO, ReasoningEffort.fromStored("turbo"))
-        assertEquals(ReasoningEffort.AUTO, ReasoningEffort.DEFAULT)
+        assertEquals(ReasoningEffort.AUTO, ReasoningEffort.fromStored("AUTO"))
+        assertEquals(ReasoningEffort.XHIGH, ReasoningEffort.fromStored(null))
+        assertEquals(ReasoningEffort.XHIGH, ReasoningEffort.fromStored("turbo"))
+        assertEquals(ReasoningEffort.XHIGH, ReasoningEffort.DEFAULT)
     }
 }

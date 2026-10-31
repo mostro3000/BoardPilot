@@ -45,7 +45,7 @@ class MetaSparkClient(
     private val apiKey: String,
     private val baseUrl: String = "https://api.meta.ai/v1",
     private val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
-    private val mode: SparkMode = SparkMode.DEFAULT,
+    private val mode: SparkMode,
 ) {
     /**
      * Pre-escaneo dedicado de dano visible sobre la foto LIMPIA, con una pregunta
@@ -135,7 +135,7 @@ class MetaSparkClient(
             candidatesJson.toString()
         val body = JSONObject().apply {
             put("model", mode.modelId)
-            put("max_tokens", 12000)
+            put("max_tokens", 16000)
             reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
             put("temperature", 0.2)
             put("messages", JSONArray()

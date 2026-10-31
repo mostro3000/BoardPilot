@@ -71,13 +71,13 @@ ids out of the texts the technician reads.
 | Model | Endpoint | Role |
 |---|---|---|
 | `sam-3.1` | `POST /v1/responses` (streaming) | Component segmentation → overlay and candidate list |
-| `muse-spark-1.3` (optional, opt-in: `muse-spark-1.3-contributor`) | `POST /v1/chat/completions` (multimodal) | Damage pre-scan, ranked hypotheses with fixes, measurement plans and re-planning, probe placement |
+| `muse-spark-1.3-contributor` by default, after accepting a notice (or `muse-spark-1.3`, Standard) | `POST /v1/chat/completions` (multimodal) | Damage pre-scan, ranked hypotheses with fixes, measurement plans and re-planning, probe placement |
 | `muse-image-1.0` | `POST /v1/responses` | Reference image of the repaired board |
 
 Each model is part of the core loop: without SAM there is no component map, without
 Muse Spark there is no diagnosis, without Muse Image there is no repair reference. The
-reasoning effort for Muse Spark is configurable in Settings (Auto by default), which also
-offers an optional Contributor mode: see [Privacy and your key](#privacy-and-your-key).
+reasoning effort for Muse Spark is configurable in Settings (Max by default), where you can
+also switch between Contributor and Standard mode: see [Privacy and your key](#privacy-and-your-key).
 
 ## Built during the event (Oct 27 – Nov 4, 2026)
 
@@ -102,8 +102,9 @@ documentation only before it); commit dates are the evidence.
   APK and AAB in `release/` (`./gradlew signedRelease`, with the signing keys kept out of
   the repository); the verdict and the board map name the component type in the app's
   language.
-- **Oct 31** — opt-in Contributor mode for Muse Spark, behind an explicit notice (Standard
-  stays the default); privacy summary in the app's About screen; the code now decides when a
+- **Oct 31** — Contributor mode at maximum reasoning effort as the default for Muse Spark,
+  behind a notice before the first analysis (Standard is one tap away); privacy summary in
+  the app's About screen; the code now decides when a
   board may be plugged in; prompts tightened against claims the photo does not support.
 
 ## Try it
@@ -122,7 +123,7 @@ that phone (it can be removed from Settings, gear icon).
 
 **Diagnose:** *New repair* → photo → symptom (and board type, or let Muse Spark detect
 it) → *Start diagnosis* → *Map with live SAM 3.1* → *Generate hypotheses (live Muse
-Spark)* → follow the measurements, one per turn, each behind its safety gate.
+Spark)* (the first time, accept the Contributor notice or choose Standard) → follow the measurements, one per turn, each behind its safety gate.
 
 ## Build from source
 
@@ -206,13 +207,14 @@ key you load on your own device. Meta handles them under its
 [terms](https://dev.meta.ai/legal/terms-of-service). No key is ever embedded in the APK or
 in this repository.
 
-**Muse Spark mode:** in **Standard** mode, the default, Meta does not use this content to
-train its models. **Contributor** mode costs much less, but it can take twice as long and Meta may use what you
-send and what it answers to train its models, including earlier photos and text from a repair you
-continue in this mode. It stays off unless you turn it on in Settings and accept the
-notice. In that mode you must not send personal or confidential information (check that
-photos show no names or customer labels), and you should use it only if Meta's terms allow
-it in your country. SAM 3.1 and Muse Image have no Contributor variant.
+**Muse Spark mode:** **Contributor** mode is the default: it costs much less, but it can take
+more than twice as long and Meta may use what you send and what it answers to train its models,
+including earlier photos and text from a repair you continue in this mode. Nothing is sent in this
+mode until you accept a notice, shown before your first analysis. There, or later in Settings, you
+can choose **Standard** mode, where Meta does not use this content to train its models. In
+Contributor mode you must not send personal or confidential information (check that photos show
+no names or customer labels), and you should use it only if Meta's terms allow it in your country.
+SAM 3.1 and Muse Image have no Contributor variant.
 
 ## Limitations
 

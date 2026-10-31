@@ -225,6 +225,7 @@ private const val PREF_LANGUAGE = "language_mode"
 private const val PREF_THEME = "theme_mode"
 private const val PREF_EFFORT = "reasoning_effort"
 private const val PREF_SPARK_MODE = "spark_mode"
+private const val PREF_CONTRIBUTOR_ACCEPTED = "contributor_accepted"
 /** Lado mayor de la miniatura de cada proyecto en la lista. */
 private const val THUMB_PX = 192
 private const val APP_AUTHOR = "Mauricio Tagliaferro"
@@ -358,6 +359,30 @@ fun BoardPilotApp(
     var sparkMode by remember {
         mutableStateOf(SparkMode.fromStored(prefs.getString(PREF_SPARK_MODE, null)))
     }
+    // Quien ya eligio Contributor en una version anterior acepto su aviso.
+    var contributorAccepted by remember {
+        mutableStateOf(
+            prefs.getBoolean(PREF_CONTRIBUTOR_ACCEPTED, false) ||
+                prefs.getString(PREF_SPARK_MODE, null) == SparkMode.CONTRIBUTOR.name,
+        )
+    }
+    var contributorNoticeFor by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun acceptContributor() {
+        contributorAccepted = true
+        prefs.edit().putBoolean(PREF_CONTRIBUTOR_ACCEPTED, true).apply()
+    }
+
+    fun selectSparkMode(selected: SparkMode) {
+        sparkMode = selected
+        prefs.edit().putString(PREF_SPARK_MODE, selected.name).apply()
+    }
+
+    fun sparkClient(key: String) = MetaSparkClient(
+        key,
+        reasoningEffort = reasoningEffort,
+        mode = sparkMode.effectiveFor(contributorAccepted),
+    )
 
     var hasApiKey by remember {
         mutableStateOf(!prefs.getString(PREF_API_KEY, null).isNullOrBlank())
@@ -749,7 +774,7 @@ fun BoardPilotApp(
         photoScope.launch {
             try {
                 val components = engine.session.components
-                val text = MetaSparkClient(key, reasoningEffort = reasoningEffort, mode = sparkMode)
+                val text = sparkClient(key)
                     .probeGuides(bmp, components, missing, language)
                 // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                 if (engines[id] === engine) {
@@ -786,7 +811,7 @@ fun BoardPilotApp(
         sparkBusy += id
         photoScope.launch {
             try {
-                val client = MetaSparkClient(key, reasoningEffort = reasoningEffort, mode = sparkMode)
+                val client = sparkClient(key)
                 // 1) Pre-escaneo de dano sobre la foto limpia (pregunta
                 //    directa); si falla, el diagnostico sigue sin el.
                 val findings = runCatching { client.scanDamage(bmp, language) }
@@ -874,7 +899,7 @@ fun BoardPilotApp(
         planBusy += id
         photoScope.launch {
             try {
-                val plan = planFor(MetaSparkClient(key, reasoningEffort = reasoningEffort, mode = sparkMode), bmp, engine)
+                val plan = planFor(sparkClient(key), bmp, engine)
                 // Reiniciado o borrado mientras tanto: la respuesta ya no aplica.
                 if (engines[id] !== engine) return@launch
                 if (plan.requests.isNotEmpty()) {
@@ -1058,9 +1083,9 @@ fun BoardPilotApp(
                 reasoningEffort = selected
                 prefs.edit().putString(PREF_EFFORT, selected.name).apply()
             }
-            SparkModeCard(strings, sparkMode) { selected ->
-                sparkMode = selected
-                prefs.edit().putString(PREF_SPARK_MODE, selected.name).apply()
+            SparkModeCard(strings, sparkMode, contributorAccepted) { selected ->
+                selectSparkMode(selected)
+                if (selected == SparkMode.CONTRIBUTOR) acceptContributor()
             }
             if (hasApiKey) ApiKeyCard(strings, hasApiKey, ::onApiKeyChanged)
         } else if (currentProject == null) {
@@ -1155,7 +1180,14 @@ fun BoardPilotApp(
                         mappingError = mappingError,
                         onMapRequest = { startMapping(project) },
                         sparkBusy = project.id in sparkBusy,
-                        onSparkRequest = { startSpark(project) },
+                        onSparkRequest = {
+                            // Nada sale en Contributor sin aceptar antes su aviso.
+                            if (sparkMode == SparkMode.CONTRIBUTOR && !contributorAccepted) {
+                                contributorNoticeFor = project.id
+                            } else {
+                                startSpark(project)
+                            }
+                        },
                         sparkMode = sparkMode,
                         note = sparkNotes[project.id],
                         planBusy = project.id in planBusy,
@@ -1168,6 +1200,22 @@ fun BoardPilotApp(
                         referenceBusy = project.id in referenceBusy,
                         referenceError = referenceError,
                         onReferenceRequest = { startReference(project) },
+                    )
+                }
+                if (contributorNoticeFor == project.id) {
+                    ContributorFirstNotice(
+                        strings,
+                        onAccept = {
+                            contributorNoticeFor = null
+                            acceptContributor()
+                            startSpark(project)
+                        },
+                        onStandard = {
+                            contributorNoticeFor = null
+                            selectSparkMode(SparkMode.STANDARD)
+                            startSpark(project)
+                        },
+                        onDismiss = { contributorNoticeFor = null },
                     )
                 }
             }
@@ -1362,11 +1410,16 @@ private fun ReasoningCard(
 }
 
 /**
- * Standard o Contributor. Contributor nunca se activa de un toque: como Meta puede
+ * Standard o Contributor. Contributor nunca se acepta de un toque: como Meta puede
  * entrenar con lo que se envia, pide aceptar el aviso. Volver a Standard es inmediato.
  */
 @Composable
-private fun SparkModeCard(strings: AppStrings, mode: SparkMode, onSelect: (SparkMode) -> Unit) {
+private fun SparkModeCard(
+    strings: AppStrings,
+    mode: SparkMode,
+    accepted: Boolean,
+    onSelect: (SparkMode) -> Unit,
+) {
     var askConfirm by rememberSaveable { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1377,7 +1430,7 @@ private fun SparkModeCard(strings: AppStrings, mode: SparkMode, onSelect: (Spark
                     strings.sparkModeContributor to SparkMode.CONTRIBUTOR,
                 ).forEach { (label, value) ->
                     val onClick: () -> Unit = {
-                        if (value == SparkMode.CONTRIBUTOR && mode != value) {
+                        if (value == SparkMode.CONTRIBUTOR && (mode != value || !accepted)) {
                             askConfirm = true
                         } else {
                             onSelect(value)
@@ -1424,6 +1477,33 @@ private fun SparkModeCard(strings: AppStrings, mode: SparkMode, onSelect: (Spark
             },
         )
     }
+}
+
+/**
+ * Contributor viene por defecto, pero el primer analisis no sale sin este aviso: se
+ * acepta o se pasa a Standard; al cerrarlo sin elegir, no se envia nada.
+ */
+@Composable
+private fun ContributorFirstNotice(
+    strings: AppStrings,
+    onAccept: () -> Unit,
+    onStandard: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.contributorFirstTitle) },
+        // Con desplazamiento: con la letra grande del sistema el aviso no entra.
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(strings.contributorDialogText)
+                Spacer(Modifier.height(12.dp))
+                Text(strings.contributorFirstNote)
+            }
+        },
+        confirmButton = { TextButton(onClick = onAccept) { Text(strings.contributorFirstAccept) } },
+        dismissButton = { TextButton(onClick = onStandard) { Text(strings.contributorFirstStandard) } },
+    )
 }
 
 /** Recordatorio justo antes de enviar: en Contributor, Meta puede entrenar con esto. */

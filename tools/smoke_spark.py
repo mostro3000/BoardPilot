@@ -316,7 +316,7 @@ def main() -> int:
     )
     body = {
         "model": MODEL,
-        "max_tokens": int(os.environ.get("SPARK_MAX_TOKENS", "12000")),
+        "max_tokens": int(os.environ.get("SPARK_MAX_TOKENS", "16000")),
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": SYSTEM.replace("BOARD_RULES", board_section(board_arg()))

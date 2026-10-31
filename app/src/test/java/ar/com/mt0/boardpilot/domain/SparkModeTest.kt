@@ -12,11 +12,19 @@ class SparkModeTest {
     }
 
     @Test
-    fun `sin eleccion del usuario o con un valor desconocido queda Standard`() {
-        assertEquals(SparkMode.STANDARD, SparkMode.DEFAULT)
-        assertEquals(SparkMode.STANDARD, SparkMode.fromStored(null))
-        assertEquals(SparkMode.STANDARD, SparkMode.fromStored(""))
-        assertEquals(SparkMode.STANDARD, SparkMode.fromStored("contributor"))
+    fun `sin eleccion del usuario o con un valor desconocido queda Contributor`() {
+        assertEquals(SparkMode.CONTRIBUTOR, SparkMode.DEFAULT)
+        assertEquals(SparkMode.CONTRIBUTOR, SparkMode.fromStored(null))
+        assertEquals(SparkMode.CONTRIBUTOR, SparkMode.fromStored(""))
+        assertEquals(SparkMode.CONTRIBUTOR, SparkMode.fromStored("contributor"))
+    }
+
+    @Test
+    fun `sin el aviso aceptado nada se envia en Contributor`() {
+        assertEquals(SparkMode.STANDARD, SparkMode.CONTRIBUTOR.effectiveFor(noticeAccepted = false))
+        assertEquals(SparkMode.CONTRIBUTOR, SparkMode.CONTRIBUTOR.effectiveFor(noticeAccepted = true))
+        assertEquals(SparkMode.STANDARD, SparkMode.STANDARD.effectiveFor(noticeAccepted = false))
+        assertEquals(SparkMode.STANDARD, SparkMode.STANDARD.effectiveFor(noticeAccepted = true))
     }
 
     @Test

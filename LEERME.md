@@ -69,13 +69,13 @@ estables y saca los ids internos de los textos que lee el técnico.
 | Modelo | Endpoint | Rol |
 |---|---|---|
 | `sam-3.1` | `POST /v1/responses` (streaming) | Segmentación de componentes → overlay y lista de candidatos |
-| `muse-spark-1.3` (opcional, a elección del usuario: `muse-spark-1.3-contributor`) | `POST /v1/chat/completions` (multimodal) | Pre-escaneo de daño, hipótesis con su reemplazo, plan de mediciones y replanificación, ubicación de las puntas |
+| `muse-spark-1.3-contributor` por defecto, tras aceptar un aviso (o `muse-spark-1.3`, Estándar) | `POST /v1/chat/completions` (multimodal) | Pre-escaneo de daño, hipótesis con su reemplazo, plan de mediciones y replanificación, ubicación de las puntas |
 | `muse-image-1.0` | `POST /v1/responses` | Imagen de referencia de la placa reparada |
 
 Cada modelo es parte del núcleo del flujo: sin SAM no hay mapa de componentes, sin Muse
 Spark no hay diagnóstico y sin Muse Image no hay referencia de la reparación. El esfuerzo
-de razonamiento de Muse Spark se configura en Configuración (Auto por defecto), que además
-ofrece un modo Contributor opcional: ver [Privacidad y tu clave](#privacidad-y-tu-clave).
+de razonamiento de Muse Spark se configura en Configuración (Máximo por defecto), donde también
+se elige entre los modos Contributor y Estándar: ver [Privacidad y tu clave](#privacidad-y-tu-clave).
 
 ## Construido durante el evento (27 oct – 4 nov de 2026)
 
@@ -103,8 +103,9 @@ son la evidencia.
   AAB de release firmados en `release/` (`./gradlew signedRelease`, con las claves de firma
   fuera del repositorio); el veredicto y el mapa nombran el tipo de componente en el idioma
   de la app.
-- **31 oct** — modo Contributor opcional para Muse Spark, con un aviso explícito (Estándar
-  sigue por defecto); resumen de privacidad en Acerca de; ahora el código decide cuándo se puede
+- **31 oct** — modo Contributor con esfuerzo Máximo por defecto para Muse Spark, con un aviso
+  antes del primer análisis (Estándar queda a un toque); resumen de privacidad en Acerca de;
+  ahora el código decide cuándo se puede
   enchufar una placa; prompts más estrictos con lo que la foto no respalda.
 
 ## Probarla
@@ -124,7 +125,7 @@ ruedita).
 
 **Diagnosticar:** *Nueva reparación* → foto → síntoma (y tipo de placa, o que lo detecte
 Muse Spark) → *Iniciar diagnóstico* → *Mapear con SAM 3.1 en vivo* → *Generar hipótesis
-(Muse Spark en vivo)* → seguir las mediciones, una por turno, cada una con su compuerta
+(Muse Spark en vivo)* (la primera vez, aceptar el aviso de Contributor o elegir Estándar) → seguir las mediciones, una por turno, cada una con su compuerta
 de seguridad.
 
 ## Compilar
@@ -209,14 +210,14 @@ cargás en tu dispositivo. Meta los trata según sus
 [términos](https://dev.meta.ai/legal/terms-of-service). La clave nunca se embebe en el APK ni
 en este repositorio.
 
-**Modo de Muse Spark:** en modo **Estándar**, el de por defecto, Meta no usa este contenido
-para entrenar sus modelos. El modo **Contributor** cuesta mucho menos, pero puede tardar el doble y Meta
-puede usar lo que envíes y lo que responda para entrenar sus modelos, también fotos y textos anteriores
-de una reparación que sigas en este modo. Queda apagado salvo que lo actives en Configuración
-y aceptes el aviso. En ese modo no podés enviar datos personales ni confidenciales (revisá
-que las fotos no muestren nombres ni etiquetas de clientes), y conviene usarlo solo si las
-condiciones de Meta lo permiten en tu país. SAM 3.1 y Muse Image no tienen variante
-Contributor.
+**Modo de Muse Spark:** el modo **Contributor** es el de por defecto: cuesta mucho menos, pero
+puede tardar más del doble y Meta puede usar lo que envíes y lo que responda para entrenar sus
+modelos, también fotos y textos anteriores de una reparación que sigas en este modo. Nada se envía
+en este modo hasta que aceptes un aviso, que aparece antes del primer análisis. Ahí, o después en
+Configuración, podés elegir el modo **Estándar**, donde Meta no usa este contenido para entrenar sus
+modelos. En modo Contributor no podés enviar datos personales ni confidenciales (revisá que las
+fotos no muestren nombres ni etiquetas de clientes), y conviene usarlo solo si las condiciones de
+Meta lo permiten en tu país. SAM 3.1 y Muse Image no tienen variante Contributor.
 
 ## Limitaciones
 
