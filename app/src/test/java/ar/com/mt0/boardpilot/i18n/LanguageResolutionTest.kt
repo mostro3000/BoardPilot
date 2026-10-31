@@ -1,6 +1,7 @@
 package ar.com.mt0.boardpilot.i18n
 
 import ar.com.mt0.boardpilot.domain.ComponentKind
+import ar.com.mt0.boardpilot.domain.MeasurementKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -34,6 +35,16 @@ class LanguageResolutionTest {
         assertNotEquals(es.appTagline, en.appTagline)
         assertNotEquals(es.needKey, en.needKey)
         assertNotEquals(es.verifiedOk, en.verifiedOk)
+    }
+
+    @Test
+    fun `la primera medicion nombra la pieza y el selector, sin confundirlos`() {
+        val es = appStrings(AppLanguage.ES)
+        val en = appStrings(AppLanguage.EN)
+        assertEquals("Primera: CYL 4, con el selector en resistencia",
+            es.firstMeasurement(es.kindName(MeasurementKind.RESISTANCE), "CYL 4"))
+        assertEquals("First: CYL 4, with the dial on resistance",
+            en.firstMeasurement(en.kindName(MeasurementKind.RESISTANCE), "CYL 4"))
     }
 
     @Test

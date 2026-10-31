@@ -2214,8 +2214,10 @@ private fun SessionContent(
                     Column(Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val done = session.results.size
+                        // Solo la pieza: "resistencia · CYL 4" se leia como si CYL 4 fuera una
+                        // resistencia. El modo del multimetro lo dice la guia de abajo.
                         Text("${strings.measurementOf(done + 1, done + session.pendingRequests.size)}: " +
-                            "${strings.kindName(req.kind)} · ${designatorOf(session, req.componentId)}",
+                            designatorOf(session, req.componentId),
                             fontWeight = FontWeight.Bold)
                         // Guia visual: la lupa junto a las instrucciones.
                         if (target != null) {
