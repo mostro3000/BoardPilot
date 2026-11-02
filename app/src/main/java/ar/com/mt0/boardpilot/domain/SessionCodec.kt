@@ -16,7 +16,10 @@ object SessionCodec {
         line(session.boardType.name)
         line(session.stage.name)
         line(enc(session.symptom))
-        line(if (session.safetyConfirmedForCurrent) "1" else "0")
+        // La confirmacion de la compuerta nunca se guarda: vale para el momento
+        // fisico en que se confirmo, no para cuando la sesion se reabra. La
+        // linea se mantiene (siempre "0") para no cambiar el formato.
+        line("0")
         line(encNullable(session.verdictComponentId))
         line(encNullable(session.replacement))
 
@@ -76,7 +79,10 @@ object SessionCodec {
         val boardType = BoardType.valueOf(cursor.next())
         val stage = Stage.valueOf(cursor.next())
         val symptom = dec(cursor.next())
-        val safetyConfirmed = cursor.next() == "1"
+        // Sesiones viejas guardaban la compuerta confirmada: se lee la linea
+        // pero se ignora; al reabrir siempre hay que confirmar de nuevo.
+        cursor.next()
+        val safetyConfirmed = false
         val verdict = decNullable(cursor.next())
         val replacement = decNullable(cursor.next())
 

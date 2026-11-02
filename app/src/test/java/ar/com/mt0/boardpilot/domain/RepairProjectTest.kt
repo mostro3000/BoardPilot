@@ -52,6 +52,34 @@ class RepairProjectTest {
     }
 
     @Test
+    fun `un indice danado se distingue de uno vacio`() {
+        // Quien lee el indice usa esto para conservar el archivo danado antes
+        // de sobrescribirlo: vacio legitimo = 0, danado = null.
+        assertEquals(0, ProjectCodec.declaredCount(ProjectCodec.encode(emptyList())))
+        assertEquals(2, ProjectCodec.declaredCount(
+            ProjectCodec.encode(listOf(project("p1"), project("p2")))))
+        assertEquals(null, ProjectCodec.declaredCount(""))
+        assertEquals(null, ProjectCodec.declaredCount("OTRO\n1\nx"))
+        assertEquals(null, ProjectCodec.declaredCount("BPP1\nno-es-numero\n"))
+        assertEquals(null, ProjectCodec.declaredCount("BPP1\n-1\n"))
+    }
+
+    @Test
+    fun `ids que escaparian de su carpeta se descartan al decodificar`() {
+        listOf("", " ", ".", "..", "../otro", "a/b", "a\\b").forEach { bad ->
+            assertFalse(isValidProjectId(bad))
+        }
+        assertTrue(isValidProjectId("p1"))
+        assertTrue(isValidProjectId("6f9619ff-8b86-4d11-b42d-00c04fc964ff"))
+        // Un proyecto con id peligroso y uno sano: solo sobrevive el sano.
+        val text = ProjectCodec.encode(listOf(project(".."), project("p1")))
+        assertEquals(listOf("p1"), ProjectCodec.decode(text).map { it.id })
+        // Y un id repetido no crea dos proyectos sobre la misma carpeta.
+        val dup = ProjectCodec.encode(listOf(project("p1"), project("p1", updated = 900L)))
+        assertEquals(1, ProjectCodec.decode(dup).size)
+    }
+
+    @Test
     fun `estado derivado verificada pisa espera y espera pisa curso`() {
         assertEquals(ProjectStatus.IN_PROGRESS, projectStatus(project()))
         assertEquals(

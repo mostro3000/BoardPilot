@@ -211,18 +211,40 @@ class DiagnosisEngine(
         session = if (powersOn) {
             session.copy(stage = Stage.VERIFIED)
         } else {
-            // No encendio: vuelve a medicion si el playbook tenia pasos, o queda en veredicto.
-            session.copy(stage = Stage.VERDICT, verdictComponentId = session.verdictComponentId)
+            // No encendio: el veredicto no era (toda) la falla. Se descarta esa
+            // hipotesis y se vuelve a las hipotesis a pedir mas evidencia, nunca
+            // a reemplazar la misma pieza y re-energizar en circulo. La cola se
+            // re-filtra: la placa cambio (pieza nueva, ya se energizo una vez).
+            val failed = session.verdictComponentId
+            session.copy(
+                stage = Stage.HYPOTHESES,
+                verdictComponentId = null,
+                safetyConfirmedForCurrent = false,
+                hypotheses = session.hypotheses.map { h ->
+                    if (h.componentId == failed) {
+                        h.copy(confirmedByMeasurement = false, ruledOut = true)
+                    } else {
+                        h
+                    }
+                },
+                pendingRequests = safeMeasurementQueue(
+                    session.pendingRequests, session.components, session.results,
+                ),
+            )
         }
     }
 
-    /** Sesion cargada con mediciones de antes de esta regla: la compuerta se reconfirma si cambia la actual. */
+    /**
+     * Sesion que entra al motor (guardada o armada afuera): la cola se re-filtra
+     * con las reglas de hoy y la compuerta se confirma de nuevo, siempre. Una
+     * confirmacion es de un momento fisico puntual ("esta desenchufado ahora");
+     * no sobrevive a guardar, cerrar y reabrir la reparacion.
+     */
     private fun DiagnosisSession.withSafeQueue(): DiagnosisSession {
         val queue = safeMeasurementQueue(pendingRequests, components, results)
-        if (queue == pendingRequests) return this
         return copy(
             pendingRequests = queue,
-            safetyConfirmedForCurrent = safetyConfirmedForCurrent && queue.firstOrNull() == currentRequest,
+            safetyConfirmedForCurrent = false,
             stage = if (stage == Stage.MEASURING && queue.isEmpty()) Stage.HYPOTHESES else stage,
         )
     }
@@ -238,8 +260,9 @@ class DiagnosisEngine(
         return when {
             proven -> Stage.VERDICT
             remaining.isNotEmpty() -> Stage.MEASURING
-            leader.confirmedByMeasurement -> Stage.VERDICT
-            else -> Stage.HYPOTHESES // Sin evidencia suficiente: pedir mas (foto/mediciones).
+            // Aunque la cola se haya agotado, sin el umbral no hay veredicto:
+            // se pide mas evidencia (foto/mediciones) en vez de adivinar.
+            else -> Stage.HYPOTHESES
         }
     }
 

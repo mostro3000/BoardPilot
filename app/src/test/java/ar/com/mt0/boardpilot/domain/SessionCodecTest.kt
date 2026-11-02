@@ -23,9 +23,11 @@ class SessionCodecTest {
 
         val restored = SessionCodec.decode(SessionCodec.encode(engine.session))
 
-        assertEquals(engine.session, restored)
+        // Todo sobrevive menos la compuerta: confirmarla vale para ese momento
+        // fisico, y al reabrir la sesion hay que confirmar de nuevo.
+        assertEquals(engine.session.copy(safetyConfirmedForCurrent = false), restored)
         assertEquals(Stage.MEASURING, restored.stage)
-        assertEquals(true, restored.safetyConfirmedForCurrent)
+        assertEquals(false, restored.safetyConfirmedForCurrent)
     }
 
     @Test

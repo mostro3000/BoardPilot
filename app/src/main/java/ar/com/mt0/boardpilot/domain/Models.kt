@@ -84,7 +84,16 @@ fun safeMeasurementQueue(
     components: List<BoardComponent>,
     results: List<MeasurementResult>,
 ): List<MeasurementRequest> {
-    val (deEnergized, live) = pending.partition { it.gate == SafetyGate.DE_ENERGIZED }
+    // La compuerta se vuelve a derivar del tipo y nunca se confia en la guardada:
+    // una sesion vieja o danada no puede colar una medicion con tension como si
+    // fuera desenergizada. Y con tension en alta tension no se guia nunca, la
+    // haya descartado o no quien armo la lista (parser, sesion restaurada...).
+    val validated = pending
+        .map { it.copy(gate = safetyGateFor(it.kind)) }
+        .filterNot {
+            it.gate == SafetyGate.LIVE_VOLTAGE && it.zone == HazardZone.HIGH_VOLTAGE
+        }
+    val (deEnergized, live) = validated.partition { it.gate == SafetyGate.DE_ENERGIZED }
     val unsafe = components.any { !it.visibleDamage.isNullOrBlank() } ||
         // Un resultado viejo, sin compuerta, cuenta como el caso mas estricto.
         results.any { it.outcome == MeasurementOutcome.ABNORMAL && it.gate != SafetyGate.LIVE_VOLTAGE }

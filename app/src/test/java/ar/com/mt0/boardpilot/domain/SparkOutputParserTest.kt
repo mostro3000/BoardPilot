@@ -142,8 +142,54 @@ class SparkOutputParserTest {
         assertEquals(MeasurementKind.RESISTANCE, SparkOutputParser.parseKind("Resistencia"))
         assertEquals(MeasurementKind.CONTINUITY, SparkOutputParser.parseKind("continuity check"))
         assertNull(SparkOutputParser.parseKind("AC voltage"))
+        // La red sin decir "alterna": tambien se rechaza, nunca cae a continua.
+        assertNull(SparkOutputParser.parseKind("mains voltage"))
+        assertNull(SparkOutputParser.parseKind("line voltage"))
+        assertNull(SparkOutputParser.parseKind("grid voltage"))
+        assertNull(SparkOutputParser.parseKind("tensión de red"))
+        assertNull(SparkOutputParser.parseKind("voltaje de red"))
+        assertNull(SparkOutputParser.parseKind("voltaje de línea"))
+        assertNull(SparkOutputParser.parseKind("voltaje alterno"))
+        assertNull(SparkOutputParser.parseKind("alternating current"))
+        assertNull(SparkOutputParser.parseKind("VCA"))
         assertNull(SparkOutputParser.parseKind("capacitance"))
         assertNull(SparkOutputParser.parseKind(""))
+    }
+
+    @Test
+    fun `una instruccion de alterna descarta la medicion aunque el tipo parezca seguro`() {
+        val json = """
+            {"hypotheses":[
+              {"id":"h1","title":"Bulk","componentId":"cyl5-sam7","confidence":0.5,"rationale":"r"}
+            ],"measurements":[
+              {"id":"m1","componentId":"cyl5-sam7","kind":"VOLTAGE_DC","instruction":"Medir 220 VAC en la entrada","targetHypothesisId":"h1"},
+              {"id":"m2","componentId":"cyl5-sam7","kind":"CONTINUITY","instruction":"Con el equipo desenchufado de la red, medir continuidad","targetHypothesisId":"h1"},
+              {"id":"m3","componentId":"cyl5-sam7","kind":"VOLTAGE_DC","instruction":"Enchufar el equipo y medir 12 V en la salida","targetHypothesisId":"h1"},
+              {"id":"m4","componentId":"cyl5-sam7","kind":"RESISTANCE","instruction":"Medir la tensión de red en el primario","targetHypothesisId":"h1"},
+              {"id":"m5","componentId":"cyl5-sam7","kind":"VOLTAGE_DC","instruction":"Measure 120 VAC at the input","targetHypothesisId":"h1"},
+              {"id":"m6","componentId":"cyl5-sam7","kind":"CONTINUITY","instruction":"Unplugged from the mains, check continuity","targetHypothesisId":"h1"},
+              {"id":"m7","componentId":"cyl5-sam7","kind":"VOLTAGE_DC","instruction":"Measure the alternating voltage at the bridge","targetHypothesisId":"h1"},
+              {"id":"m8","componentId":"cyl5-sam7","kind":"VOLTAGE_DC","instruction":"Medir los 220 V de la red en la bornera","targetHypothesisId":"h1"}
+            ]}
+        """.trimIndent()
+        val d = SparkOutputParser.parse(json, components)
+        assertEquals(listOf("m2", "m3", "m6"), d.requests.map { it.id })
+    }
+
+    @Test
+    fun `confianzas en porcentaje conservan el orden y las imposibles se descartan`() {
+        val json = """
+            {"hypotheses":[
+              {"id":"h1","title":"A","componentId":"cyl5-sam7","confidence":85,"rationale":"r"},
+              {"id":"h2","title":"B","componentId":"trf1-sam0","confidence":40,"rationale":"r"},
+              {"id":"h3","title":"Negativa","componentId":"trf1-sam0","confidence":-3,"rationale":"r"},
+              {"id":"h4","title":"Infinita","componentId":"trf1-sam0","confidence":1e999,"rationale":"r"}
+            ],"measurements":[]}
+        """.trimIndent()
+        val d = SparkOutputParser.parse(json, components)
+        assertEquals(listOf("h1", "h2"), d.hypotheses.map { it.id })
+        assertEquals(0.85, d.hypotheses[0].confidence, 1e-9)
+        assertEquals(0.40, d.hypotheses[1].confidence, 1e-9)
     }
 
     @Test
@@ -268,7 +314,18 @@ class SparkOutputParserTest {
     fun `cada medicion trae su zona y nunca hay tension en alta tension`() {
         assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone(null))
         assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone("no se"))
+        // Por palabras enteras: "below" contiene "low" y no es el lado frio;
+        // "low voltage" solo tampoco (salida baja no aislada = referida a red).
+        assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone("below_transformer"))
+        assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone("low_voltage"))
         assertEquals(HazardZone.SECONDARY, SparkOutputParser.parseZone("secondary"))
+        assertEquals(HazardZone.SECONDARY, SparkOutputParser.parseZone("cold side"))
+        assertEquals(HazardZone.SECONDARY, SparkOutputParser.parseZone("lado frío"))
+        assertEquals(HazardZone.SECONDARY, SparkOutputParser.parseZone("secundario aislado"))
+        // "Hot side" es el lado de red: primario en ambos idiomas.
+        assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone("hot side"))
+        assertEquals(HazardZone.PRIMARY, SparkOutputParser.parseZone("primario"))
+        assertEquals(HazardZone.HIGH_VOLTAGE, SparkOutputParser.parseZone("alta tensión"))
         assertEquals(HazardZone.HIGH_VOLTAGE, SparkOutputParser.parseZone("HIGH_VOLTAGE"))
         val json = """
             {"hypotheses":[{"id":"h1","title":"CCFL","componentId":"trf1-sam0","confidence":0.5,"rationale":"r"}],

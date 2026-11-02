@@ -211,6 +211,7 @@ import ar.com.mt0.boardpilot.i18n.projectSubtitle
 import ar.com.mt0.boardpilot.i18n.relativeTime
 import ar.com.mt0.boardpilot.i18n.resolveLanguage
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -774,6 +775,8 @@ fun BoardPilotApp(
                     engine.loadMapping(components)
                     refresh(id, liveMapping = true)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (openProjectId == id) mappingError = strings.samFailed
             } finally {
@@ -830,6 +833,8 @@ fun BoardPilotApp(
                     engine.attachProbes(SparkOutputParser.parseProbes(text, components, missing))
                     refresh(id)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // Sin puntas sugeridas queda la guia fija y el boton para reintentar.
             } finally {
@@ -923,6 +928,8 @@ fun BoardPilotApp(
                     // Donde van las puntas de estas mediciones, en segundo plano.
                     if (engines[id] === engine) requestProbes(id, engine, bmp, key)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (openProjectId == id) mappingError = strings.sparkFailed
             } finally {
@@ -951,6 +958,8 @@ fun BoardPilotApp(
                 applyPlan(id, engine, plan)
                 refresh(id)
                 requestProbes(id, engine, bmp, key)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (engines[id] === engine) sparkNotes[id] = strings.askFailed
             } finally {
@@ -974,10 +983,11 @@ fun BoardPilotApp(
     /** Referencia visual de la reparacion con Muse Image (solo orientativa). */
     fun startReference(project: RepairProject) {
         val id = project.id
+        val engine = engineFor(project)
         referenceError = null
         val bmp = boardBitmap
         val key = apiKey()
-        val session = engineFor(project).session
+        val session = engine.session
         val component = session.components
             .firstOrNull { it.id == session.verdictComponentId }
         if (bmp == null || key == null || component == null) {
@@ -988,6 +998,9 @@ fun BoardPilotApp(
         photoScope.launch {
             try {
                 val generated = MetaImageClient(key).repairReference(bmp, component)
+                // Reiniciado o borrado mientras tanto: no resucitar la referencia
+                // sobre la sesion nueva ni recrear la carpeta del proyecto borrado.
+                if (engines[id] !== engine) return@launch
                 store.saveReference(id, generated)
                 updateProject(id) {
                     it.copy(
@@ -996,6 +1009,8 @@ fun BoardPilotApp(
                     )
                 }
                 if (openProjectId == id) referenceBitmap = generated
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (openProjectId == id) referenceError = strings.referenceFailed
             } finally {

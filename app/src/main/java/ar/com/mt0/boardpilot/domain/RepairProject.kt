@@ -10,6 +10,16 @@ enum class ProjectStatus { IN_PROGRESS, WAITING, REPAIRED }
  * foto y referencia (archivos por id fuera de este modelo). `waiting` la
  * marca el técnico cuando falta un repuesto, con la nota de qué falta.
  */
+/**
+ * Id utilizable como nombre de carpeta dentro de `projects/`: los genera la
+ * app (UUID), pero un indice danado puede traer cualquier cosa. Vacio, "." o
+ * ".." apuntarian a la raiz (borrar un proyecto borraria todos) y un
+ * separador escaparia de la carpeta.
+ */
+fun isValidProjectId(id: String): Boolean =
+    id.isNotBlank() && id.length <= 128 && id != "." && id != ".." &&
+        id.none { it == '/' || it == '\\' || it.code < 32 }
+
 data class RepairProject(
     val id: String,
     val title: String,
@@ -171,15 +181,32 @@ object ProjectCodec {
         }
     }.trimEnd()
 
+    /**
+     * Cantidad de proyectos que el encabezado dice traer, o null si el texto
+     * no es un indice reconocible (encabezado desconocido o cantidad ilegible).
+     * Distingue "indice vacio" de "indice danado": quien lo lee debe conservar
+     * el archivo danado antes de sobrescribirlo con una lista vacia.
+     */
+    fun declaredCount(text: String): Int? {
+        val lines = text.lineSequence().iterator()
+        if (!lines.hasNext() || lines.next() != HEADER) return null
+        if (!lines.hasNext()) return null
+        return lines.next().toIntOrNull()?.takeIf { it >= 0 }
+    }
+
     fun decode(text: String): List<RepairProject> {
         val lines = text.lineSequence().iterator()
         if (!lines.hasNext() || lines.next() != HEADER) return emptyList()
         if (!lines.hasNext()) return emptyList()
         val count = lines.next().toIntOrNull() ?: return emptyList()
         val out = mutableListOf<RepairProject>()
+        val seenIds = mutableSetOf<String>()
         repeat(count) {
             if (!lines.hasNext()) return out
-            runCatching { out += decodeProject(lines.next()) }
+            // Entradas danadas se omiten; un id repetido tambien (dos proyectos
+            // con el mismo id compartirian carpeta, fotos y motor).
+            runCatching { decodeProject(lines.next()) }.getOrNull()
+                ?.takeIf { seenIds.add(it.id) }?.let { out += it }
         }
         return out
     }
@@ -187,8 +214,10 @@ object ProjectCodec {
     private fun decodeProject(line: String): RepairProject {
         val f = line.split("|")
         require(f.size == 10) { "proyecto con ${f.size} campos" }
+        val id = dec(f[0])
+        require(isValidProjectId(id)) { "id de proyecto invalido" }
         return RepairProject(
-            id = dec(f[0]),
+            id = id,
             title = dec(f[1]),
             createdAtMillis = f[2].toLong(),
             updatedAtMillis = f[3].toLong(),

@@ -65,9 +65,14 @@ object SparkOutputParser {
             val y = unmapped.num("y")
             val w = unmapped.num("w")
             val h = unmapped.num("h")
-            if (description != null && x != null && y != null && w != null && h != null) {
+            val box = if (x != null && y != null && w != null && h != null) {
+                SparkDamageParser.validBox(x, y, w, h)
+            } else {
+                null
+            }
+            if (description != null && box != null) {
                 val assigned = SparkDamageParser.assign(
-                    listOf(DamageFinding(description, SparkDamageParser.clampBox(x, y, w, h))),
+                    listOf(DamageFinding(description, box)),
                     components,
                 )
                 assigned.first.forEach { (id, damage) -> damages.putIfAbsent(id, damage) }
@@ -125,6 +130,18 @@ object SparkOutputParser {
                     ?: return@mapIndexedNotNull null
                 val title = m.str("title")?.takeIf { it.isNotBlank() }
                     ?: return@mapIndexedNotNull null
+                // Confianza: un numero fuera de escala no se "arregla" a 0.99,
+                // porque eso empata todas las hipotesis y arruina el orden.
+                // 85 se lee como 85 %; negativo, no finito (1e999) o mayor que
+                // 100 descarta la hipotesis.
+                val rawConfidence = (m["confidence"] as? Number)?.toDouble()
+                val confidence = when {
+                    rawConfidence == null -> 0.25
+                    !rawConfidence.isFinite() || rawConfidence < 0.0 || rawConfidence > 100.0 ->
+                        return@mapIndexedNotNull null
+                    rawConfidence > 1.0 -> rawConfidence / 100.0
+                    else -> rawConfidence
+                }.coerceIn(0.01, 0.99)
                 var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "h${index + 1}"
                 while (id in usedIds) id += "b"
                 usedIds += id
@@ -132,8 +149,7 @@ object SparkOutputParser {
                     id = id,
                     title = title,
                     componentId = componentId,
-                    confidence = (m["confidence"] as? Number)?.toDouble()
-                        ?.coerceIn(0.01, 0.99) ?: 0.25,
+                    confidence = confidence,
                     rationale = m.str("rationale").orEmpty(),
                     fix = m.firstStr("fix", "replacement", "repair").orEmpty(),
                 )
@@ -171,10 +187,21 @@ object SparkOutputParser {
      * la mas estricta (lado de red).
      */
     fun parseZone(raw: String?): HazardZone {
-        val key = raw?.trim()?.uppercase()?.replace(Regex("[^A-Z]+"), "_") ?: return HazardZone.PRIMARY
+        // Por palabras enteras, nunca por subcadena: "below_transformer" contiene
+        // "low" y no es el lado frio. "Low voltage" solo tampoco alcanza: una
+        // salida de baja tension no aislada sigue referida a la red; ante la
+        // duda, el lado de red.
+        val tokens = raw?.trim()?.uppercase()
+            ?.replace(Regex("[^A-ZÁÉÍÓÚÑ]+"), "_")?.trim('_')
+            ?.split("_")?.filter { it.isNotEmpty() }?.toSet().orEmpty()
         return when {
-            "HIGH" in key || key == "HV" || "ALTA" in key -> HazardZone.HIGH_VOLTAGE
-            "SECOND" in key || "SECUND" in key || "LOW" in key || "COLD" in key -> HazardZone.SECONDARY
+            tokens.isEmpty() -> HazardZone.PRIMARY
+            "HIGH" in tokens || "HV" in tokens || "ALTA" in tokens -> HazardZone.HIGH_VOLTAGE
+            tokens.any {
+                it.startsWith("SECOND") || it.startsWith("SECUND") ||
+                    it == "COLD" || it == "FRÍO" || it == "FRIO" ||
+                    it == "SELV" || it == "ISOLATED" || it.startsWith("AISLAD")
+            } -> HazardZone.SECONDARY
             else -> HazardZone.PRIMARY
         }
     }
@@ -314,8 +341,15 @@ object SparkOutputParser {
             ?.takeIf { it.isNotEmpty() } ?: return null
         MeasurementKind.entries.firstOrNull { it.name == key }?.let { return it }
         val tokens = key.split("_").toSet()
+        // La red tambien se nombra sin decir "alterna": mains/line/grid voltage,
+        // voltaje o tension "de red" (el token RED en un tipo de medicion solo
+        // puede ser eso). Sin este rechazo caian en la rama VOLT/TENSI y una
+        // medicion de red se guiaba como continua.
+        val mains = tokens.any { it in MAINS_TOKENS } ||
+            (tokens.any { it == "LINE" || it == "LÍNEA" || it == "LINEA" } &&
+                ("VOLT" in key || "TENSI" in key))
         return when {
-            tokens.any { it in AC_TOKENS } -> null
+            mains || tokens.any { it in AC_TOKENS } -> null
             "VOLT" in key || "TENSI" in key || "VDC" in tokens || "DCV" in tokens ->
                 MeasurementKind.VOLTAGE_DC
             "DIOD" in key -> MeasurementKind.DIODE
@@ -325,7 +359,32 @@ object SparkOutputParser {
         }
     }
 
-    private val AC_TOKENS = setOf("AC", "VAC", "ACV", "ALTERNA", "ALTERNATING")
+    private val AC_TOKENS = setOf(
+        "AC", "CA", "VAC", "ACV", "VCA", "ALTERNA", "ALTERNO", "ALTERNATING",
+    )
+    private val MAINS_TOKENS = setOf("MAINS", "GRID", "RED")
+
+    /**
+     * La instruccion manda sobre la placa real: si pide medir alterna o la red
+     * ("medir 220 VAC en la entrada") la medicion se descarta aunque el tipo
+     * declarado parezca inocente. Patrones puntuales para no rechazar la
+     * medicion en continua que solo menciona la red al pasar ("desenchufado
+     * de la red", "enchufar y medir 12 V").
+     */
+    private val AC_INSTRUCTION = listOf(
+        Regex("""\b\d+(?:[.,]\d+)?\s*V\s*(?:AC|CA|ALTERNA|ALTERNO|~)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b\d+(?:[.,]\d+)?\s*V\s+(?:DE\s+(?:LA\s+)?RED|MAINS|LINE|GRID)\b""",
+            RegexOption.IGNORE_CASE),
+        Regex("""\b(?:VAC|VCA|AC\s+VOLTAGE|VOLTAGE\s+AC|MAINS\s+VOLTAGE|LINE\s+VOLTAGE|GRID\s+VOLTAGE)\b""",
+            RegexOption.IGNORE_CASE),
+        Regex("""\bALTERNATING\s+(?:CURRENT|VOLTAGE)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:TENSI[OÓ]N|VOLTAJE|CORRIENTE)\s+(?:ALTERN[AO]|DE\s+(?:LA\s+)?(?:RED|L[IÍ]NEA))\b""",
+            RegexOption.IGNORE_CASE),
+        Regex("""\bRED\s+EL[EÉ]CTRICA\b""", RegexOption.IGNORE_CASE),
+    )
+
+    private fun mentionsAc(instruction: String): Boolean =
+        AC_INSTRUCTION.any { it.containsMatchIn(instruction) }
 
     private fun requests(
         raw: Any?,
@@ -353,6 +412,7 @@ object SparkOutputParser {
                 ?: return@mapIndexedNotNull null
             val instruction = m.firstStr("instruction", "how", "procedure")
                 ?: return@mapIndexedNotNull null
+            if (mentionsAc(instruction)) return@mapIndexedNotNull null
             var id = m.str("id")?.takeIf { it.isNotBlank() } ?: "m${index + 1}"
             while (id in usedReqIds) id += "b"
             usedReqIds += id

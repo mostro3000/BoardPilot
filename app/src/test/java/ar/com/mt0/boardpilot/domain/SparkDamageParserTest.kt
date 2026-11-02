@@ -24,6 +24,29 @@ class SparkDamageParserTest {
     }
 
     @Test
+    fun `coordenadas fuera de escala se descartan y no fabrican una caja`() {
+        // Porcentajes 0-100, tamanos cero/negativos y origenes fuera de la foto:
+        // antes se clampeaban a una cajita valida en la esquina.
+        listOf(
+            """{"description":"Quemado","x":55,"y":56,"w":23,"h":15}""",
+            """{"description":"Quemado","x":0.1,"y":0.1,"w":0,"h":0.1}""",
+            """{"description":"Quemado","x":0.1,"y":0.1,"w":-0.2,"h":0.1}""",
+            """{"description":"Quemado","x":-0.1,"y":0.1,"w":0.1,"h":0.1}""",
+            """{"description":"Quemado","x":0.1,"y":1.5,"w":0.1,"h":0.1}""",
+        ).forEach { damage ->
+            assertTrue(SparkDamageParser.parse("""{"damages":[$damage]}""").isEmpty())
+        }
+        // Apenas fuera del borde: se recorta a la foto, sin inventar posicion.
+        val trimmed = SparkDamageParser.validBox(0.9, 0.9, 0.3, 0.05)!!
+        assertEquals(0.1f, trimmed.w, 1e-5f)
+        assertEquals(0.05f, trimmed.h, 1e-5f)
+        val kept = SparkDamageParser.parse(
+            """{"damages":[{"description":"Quemado","x":0.55,"y":0.56,"w":0.23,"h":0.15}]}""",
+        )
+        assertEquals(NormBox(0.55f, 0.56f, 0.23f, 0.15f), kept.single().box)
+    }
+
+    @Test
     fun `sin dano o json invalido devuelve vacio`() {
         assertTrue(SparkDamageParser.parse("""{"damages":[]}""").isEmpty())
         assertTrue(SparkDamageParser.parse("nada").isEmpty())

@@ -118,11 +118,45 @@ class DiagnosisEngineTest {
     fun `una falla medida sin tension tambien frena los planes siguientes`() {
         val engine = engineWith(listOf(coldA))
         engine.answer(MeasurementOutcome.ABNORMAL)
-        // h1 lidera confirmada: queda el veredicto; igual se comprueba la regla sobre otra sesion.
-        val session = engine.session.copy(stage = Stage.HYPOTHESES)
-        val resumed = DiagnosisEngine(session)
+        // h1 lidera confirmada pero con share 0,5: sin umbral no hay veredicto
+        // aunque la cola se haya agotado; se pide mas evidencia.
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        assertEquals(null, engine.session.verdictComponentId)
+        val resumed = DiagnosisEngine(engine.session)
         resumed.addRequests(listOf(measurement("v2", MeasurementKind.VOLTAGE_DC, "h3")))
         assertTrue(resumed.session.pendingRequests.isEmpty())
+    }
+
+    @Test
+    fun `la cola segura re-deriva la compuerta y quita tension en alta tension`() {
+        // Sesion danada/vieja: la medicion con tension trae la compuerta
+        // desenergizada guardada. No se confia en ese campo.
+        val liveHv = measurement("v9", MeasurementKind.VOLTAGE_DC, "h2")
+            .copy(gate = SafetyGate.DE_ENERGIZED, zone = HazardZone.HIGH_VOLTAGE)
+        val liveWrongGate = measurement("v8", MeasurementKind.VOLTAGE_DC, "h2")
+            .copy(gate = SafetyGate.DE_ENERGIZED)
+        val checked = listOf(
+            MeasurementResult("c0", MeasurementOutcome.NORMAL, "n", "c1", SafetyGate.DE_ENERGIZED),
+        )
+        val queue = safeMeasurementQueue(
+            listOf(liveHv, liveWrongGate, coldA), safetyParts, checked,
+        )
+        assertEquals(listOf("c1", "v8"), queue.map { it.id })
+        assertEquals(SafetyGate.LIVE_VOLTAGE, queue.last().gate)
+    }
+
+    @Test
+    fun `una sesion reabierta nunca trae la compuerta ya confirmada`() {
+        val saved = DiagnosisSession(
+            boardType = BoardType.SMPS,
+            symptom = "s",
+            components = safetyParts,
+            hypotheses = safetyHypotheses,
+            pendingRequests = listOf(coldA),
+            safetyConfirmedForCurrent = true,
+            stage = Stage.MEASURING,
+        )
+        assertFalse(DiagnosisEngine(saved).session.safetyConfirmedForCurrent)
     }
 
     @Test
@@ -297,14 +331,18 @@ class DiagnosisEngineTest {
     }
 
     @Test
-    fun `una lectura anormal despues de una normal sobre la misma hipotesis igual la confirma`() {
+    fun `una lectura anormal despues de una normal la confirma pero sin umbral no da veredicto`() {
         val requests = listOf(coldA, measurement("v1", MeasurementKind.VOLTAGE_DC))
         val engine = incrementalEngine(requests)
         engine.answer(MeasurementOutcome.NORMAL)
         engine.answer(MeasurementOutcome.ABNORMAL)
-        assertEquals(Stage.VERDICT, engine.session.stage)
-        assertEquals("c1", engine.session.verdictComponentId)
-        assertFalse(engine.session.hypotheses.single { it.id == "h1" }.ruledOut)
+        // Confirmada por medicion, pero su share (~0,63) no llega al umbral:
+        // agotada la cola se pide mas evidencia, no se adivina el reemplazo.
+        val h1 = engine.session.hypotheses.single { it.id == "h1" }
+        assertTrue(h1.confirmedByMeasurement)
+        assertFalse(h1.ruledOut)
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        assertEquals(null, engine.session.verdictComponentId)
     }
 
     @Test
@@ -405,6 +443,25 @@ class DiagnosisEngineTest {
             "Quemado",
             engine.session.components.first { it.id == "q3" }.visibleDamage,
         )
+    }
+
+    @Test
+    fun `si no enciende tras reparar se descarta la hipotesis y se sigue buscando`() {
+        val engine = engineAtMeasuring(AppLanguage.ES)
+        engine.confirmSafety()
+        engine.submitResult(MeasurementResult("m_f1", MeasurementOutcome.NORMAL))
+        engine.confirmSafety()
+        engine.submitResult(MeasurementResult("m_q3", MeasurementOutcome.ABNORMAL))
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        engine.markRepaired(GoldenCaseSmps.replacement(AppLanguage.ES))
+        engine.markVerified(powersOn = false)
+        // Nada de volver al mismo veredicto: a pedir mas evidencia.
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        assertEquals(null, engine.session.verdictComponentId)
+        val failed = engine.session.hypotheses
+            .single { it.componentId == GoldenCaseSmps.EXPECTED_VERDICT_COMPONENT }
+        assertTrue(failed.ruledOut)
+        assertFalse(failed.confirmedByMeasurement)
     }
 
     @Test

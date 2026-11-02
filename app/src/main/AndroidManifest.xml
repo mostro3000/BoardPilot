@@ -14,8 +14,13 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.BoardPilot">
+        <!-- configChanges: rotar, cambiar el tema del sistema o redimensionar en
+             multi-ventana no recrea la Activity; Compose recompone con la
+             configuracion nueva y los pedidos SAM/Spark en vuelo (que tardan
+             minutos y ya se pagaron) no se cancelan. -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|locale|layoutDirection|fontScale|keyboard|keyboardHidden|navigation"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

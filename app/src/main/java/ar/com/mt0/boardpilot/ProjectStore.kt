@@ -8,9 +8,11 @@ import android.util.AtomicFile
 import ar.com.mt0.boardpilot.domain.DiagnosisSession
 import ar.com.mt0.boardpilot.domain.ProjectCodec
 import ar.com.mt0.boardpilot.domain.RepairProject
+import ar.com.mt0.boardpilot.domain.isValidProjectId
 import ar.com.mt0.boardpilot.domain.legacyProject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -57,14 +59,48 @@ class ProjectStore private constructor(context: Context) {
         val loaded = io.submit(Callable {
             val index = File(root, INDEX_FILE)
             if (index.exists() || File(root, "$INDEX_FILE.bak").exists()) {
-                runCatching { ProjectCodec.decode(String(AtomicFile(index).readFully())) }
-                    .getOrDefault(emptyList())
+                readIndex(index)
             } else {
-                migrateLegacy(prefs, freshSession, fallbackTitle, nowMillis)
+                // Una migracion que falla (disco lleno al copiar las fotos) no
+                // puede crashear la app en cada arranque: queda la lista vacia
+                // esta vez y lo viejo intacto para reintentar la proxima.
+                runCatching { migrateLegacy(prefs, freshSession, fallbackTitle, nowMillis) }
+                    .getOrDefault(emptyList())
             }
         }).get()
         cache = loaded
         return loaded
+    }
+
+    /**
+     * Indice leido del disco. Si esta danado (ilegible, encabezado desconocido
+     * o con entradas que no decodifican) se conserva una copia al lado antes
+     * de que el proximo guardado sobrescriba el original: un error de lectura
+     * nunca destruye el historial completo en silencio.
+     */
+    private fun readIndex(index: File): List<RepairProject> {
+        val bytes = runCatching { AtomicFile(index).readFully() }.getOrNull()
+        val text = bytes?.let { String(it) }
+        val declared = text?.let { ProjectCodec.declaredCount(it) }
+        if (text == null || declared == null) {
+            preserveDamagedIndex(index, bytes)
+            return emptyList()
+        }
+        val projects = ProjectCodec.decode(text)
+        if (projects.size < declared) preserveDamagedIndex(index, bytes)
+        return projects
+    }
+
+    private fun preserveDamagedIndex(index: File, bytes: ByteArray?) {
+        runCatching {
+            root.mkdirs()
+            val copy = File(root, "index-danado-${System.currentTimeMillis()}.bpp")
+            when {
+                bytes != null -> copy.writeBytes(bytes)
+                index.isFile -> index.copyTo(copy)
+                else -> File(index.path + ".bak").takeIf { it.isFile }?.copyTo(copy)
+            }
+        }
     }
 
     @Synchronized
@@ -116,7 +152,17 @@ class ProjectStore private constructor(context: Context) {
     /** Borra la carpeta del proyecto (la lista ya se guardo sin el). */
     fun deleteFiles(id: String) = io.execute { dir(id).deleteRecursively() }
 
-    private fun dir(id: String) = File(root, id)
+    /**
+     * Carpeta del proyecto, siempre un hijo directo de la raiz: un id danado
+     * ("..", vacio, con separadores) jamas apunta a la raiz ni afuera, asi
+     * borrar un proyecto no puede borrar todos.
+     */
+    private fun dir(id: String): File {
+        require(isValidProjectId(id)) { "id de proyecto invalido" }
+        val dir = File(root, id)
+        require(dir.canonicalFile.parentFile == root.canonicalFile) { "id de proyecto invalido" }
+        return dir
+    }
 
     private fun extraFile(id: String, index: Int) = File(dir(id), "$EXTRA_PREFIX$index.jpg")
 
@@ -126,6 +172,16 @@ class ProjectStore private constructor(context: Context) {
     private fun writeIndex(text: String) {
         root.mkdirs()
         writeAtomically(File(root, INDEX_FILE)) { it.write(text.toByteArray()) }
+    }
+
+    /** Copia via un temporal en la misma carpeta: o queda el archivo entero, o no queda. */
+    private fun copyAtomically(from: File, to: File) {
+        val tmp = File(to.parentFile, to.name + ".tmp")
+        from.copyTo(tmp, overwrite = true)
+        if (!tmp.renameTo(to)) {
+            tmp.delete()
+            throw IOException("no se pudo mover ${tmp.name} a ${to.name}")
+        }
     }
 
     private fun writeJpeg(file: File, bitmap: Bitmap) {
@@ -186,9 +242,9 @@ class ProjectStore private constructor(context: Context) {
         val projects = listOfNotNull(project)
         project?.let { p ->
             dir(p.id).mkdirs()
-            if (legacyBoard.isFile) legacyBoard.copyTo(File(dir(p.id), BOARD_FILE), true)
+            if (legacyBoard.isFile) copyAtomically(legacyBoard, File(dir(p.id), BOARD_FILE))
             if (p.referenceComponentId != null) {
-                legacyReference.copyTo(File(dir(p.id), REFERENCE_FILE), true)
+                copyAtomically(legacyReference, File(dir(p.id), REFERENCE_FILE))
             }
         }
         writeIndex(ProjectCodec.encode(projects))

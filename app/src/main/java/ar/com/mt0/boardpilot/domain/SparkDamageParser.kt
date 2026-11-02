@@ -42,7 +42,8 @@ object SparkDamageParser {
                 val y = num(m["y"]) ?: return@mapNotNull null
                 val w = num(m["w"]) ?: return@mapNotNull null
                 val h = num(m["h"]) ?: return@mapNotNull null
-                DamageFinding(description, clampBox(x, y, w, h))
+                val box = validBox(x, y, w, h) ?: return@mapNotNull null
+                DamageFinding(description, box)
             }
             .take(MAX_FINDINGS)
     }
@@ -128,14 +129,20 @@ object SparkDamageParser {
         return (used.maxOrNull() ?: 0) + 1
     }
 
-    fun clampBox(x: Double, y: Double, w: Double, h: Double): NormBox {
-        val cx = x.toFloat().coerceIn(0f, 0.98f)
-        val cy = y.toFloat().coerceIn(0f, 0.98f)
-        return NormBox(
-            cx, cy,
-            w.toFloat().coerceIn(0.02f, 1f - cx),
-            h.toFloat().coerceIn(0.02f, 1f - cy),
-        )
+    /**
+     * Caja del modelo, o null si no es una caja normalizada creible. Antes se
+     * "arreglaba" clampeando: porcentajes 0-100 (55, 56, 23, 15) terminaban en
+     * una cajita valida en la esquina y fabricaban un dano fantasma. Una caja
+     * que se sale apenas de la foto se recorta al borde; una fuera de escala,
+     * con tamano cero o negativo se descarta entera.
+     */
+    fun validBox(x: Double, y: Double, w: Double, h: Double): NormBox? {
+        if (x !in 0.0..1.0 || y !in 0.0..1.0) return null
+        if (w <= 0.0 || h <= 0.0 || w > 1.0 || h > 1.0) return null
+        val width = minOf(w, 1.0 - x)
+        val height = minOf(h, 1.0 - y)
+        if (width <= 0.0 || height <= 0.0) return null
+        return NormBox(x.toFloat(), y.toFloat(), width.toFloat(), height.toFloat())
     }
 
     private fun num(value: Any?): Double? =

@@ -70,8 +70,8 @@ android {
         applicationId = "ar.com.mt0.boardpilot"
         minSdk = 26
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     signingConfigs {
@@ -101,7 +101,7 @@ android {
 }
 
 // APK y AAB de release firmados, en release/ (fuera de git: se publican en GitHub Releases) y
-// con el applicationId y la version en el nombre (ar.com.mt0.boardpilot-0.1.1.apk / .aab):
+// con el applicationId y la version en el nombre (ar.com.mt0.boardpilot-0.1.2.apk / .aab):
 // ./gradlew signedRelease
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->

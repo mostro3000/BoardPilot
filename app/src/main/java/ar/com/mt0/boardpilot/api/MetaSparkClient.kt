@@ -346,7 +346,10 @@ class MetaSparkClient(
             if (code !in 200..299) {
                 val detail = connection.errorStream?.bufferedReader()
                     ?.readText()?.take(300).orEmpty()
-                throw MetaApiException(code, "Meta API HTTP $code: $detail")
+                throw MetaApiException(
+                    code, "Meta API HTTP $code: $detail",
+                    MetaApiRetry.retryAfterMs(connection.getHeaderField("Retry-After")),
+                )
             }
             val payload = connection.inputStream.bufferedReader().readText()
             val root = JSONObject(payload)
