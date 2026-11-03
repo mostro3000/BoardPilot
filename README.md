@@ -12,6 +12,13 @@ app with no backend of its own**.
 > Built for the Meta Global AI Developer Hackathon (Indie Developer track, *Push the
 > Frontier* theme) during the build period (Oct 27 – Nov 4, 2026).
 
+## Demo video
+
+<a href="https://youtu.be/QmhhvENuv38"><img src="docs/demo-video.jpg" alt="Demo video: a guided measurement in BoardPilot" width="300"></a>
+
+**[▶ Watch the 3-minute demo on YouTube](https://youtu.be/QmhhvENuv38)**. The file is also
+attached to [release 0.1.3](https://github.com/mostro3000/BoardPilot/releases/tag/v0.1.3) as `BoardPilot-demo.mp4`.
+
 ## Screenshots
 
 Real screens, diagnosing the author's own boards with the live models. The

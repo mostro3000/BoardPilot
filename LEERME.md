@@ -12,6 +12,13 @@ propio**.
 > Proyecto del Meta Global AI Developer Hackathon (track Indie Developer, tema *Push the
 > Frontier*), construido durante el período del evento (27 oct – 4 nov de 2026).
 
+## Video demo
+
+<a href="https://youtu.be/QmhhvENuv38"><img src="docs/demo-video.jpg" alt="Video demo: una medición guiada en BoardPilot" width="300"></a>
+
+**[▶ Ver el demo de 3 minutos en YouTube](https://youtu.be/QmhhvENuv38)**, en inglés. El archivo
+también está en el [Release 0.1.3](https://github.com/mostro3000/BoardPilot/releases/tag/v0.1.3) como `BoardPilot-demo.mp4`.
+
 ## Capturas
 
 Pantallas reales, en inglés, diagnosticando placas propias del autor con los
