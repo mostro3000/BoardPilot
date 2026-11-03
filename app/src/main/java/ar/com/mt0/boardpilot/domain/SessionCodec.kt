@@ -71,6 +71,9 @@ object SessionCodec {
 
         line(session.extraPhotos.size.toString())
         session.extraPhotos.forEach { line(encNullable(it.ifBlank { null })) }
+
+        line(session.replacedComponents.size.toString())
+        session.replacedComponents.forEach { line(enc(it)) }
     }.trimEnd()
 
     fun decode(text: String): DiagnosisSession {
@@ -147,6 +150,12 @@ object SessionCodec {
         } else {
             emptyList()
         }
+        // Y las de antes de anotar las piezas ya cambiadas, en las fotos.
+        val replaced = if (cursor.hasNext()) {
+            List(cursor.nextCount()) { dec(cursor.next()) }
+        } else {
+            emptyList()
+        }
         return DiagnosisSession(
             boardType = boardType,
             symptom = symptom,
@@ -159,6 +168,7 @@ object SessionCodec {
             verdictComponentId = verdict,
             replacement = replacement,
             extraPhotos = extraPhotos,
+            replacedComponents = replaced,
         )
     }
 

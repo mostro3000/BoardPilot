@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -191,6 +192,7 @@ import ar.com.mt0.boardpilot.domain.Stage
 import ar.com.mt0.boardpilot.domain.ThemeMode
 import ar.com.mt0.boardpilot.domain.TitleTapDetector
 import ar.com.mt0.boardpilot.domain.isUntouched
+import ar.com.mt0.boardpilot.domain.technicianVerdicts
 import ar.com.mt0.boardpilot.domain.MAX_EXTRA_PHOTOS
 import ar.com.mt0.boardpilot.domain.newDiagnosisSession
 import ar.com.mt0.boardpilot.domain.paused
@@ -795,6 +797,7 @@ fun BoardPilotApp(
         }
         val text = client.planMeasurements(
             bmp, s.components, s.symptom, s.hypotheses, s.results, language, s.boardType, extraPhotos,
+            replaced = s.replacedComponents,
         )
         return SparkOutputParser.parsePlan(
             text, s.components, s.hypotheses,
@@ -2161,6 +2164,7 @@ private fun SessionContent(
             HypothesisList(session, strings)
             ExtraPhotosRow(strings, extraThumbnails)
             val next = session.currentRequest
+            val candidate = session.technicianVerdicts().firstOrNull()
             when {
                 // Hay que medir: se explica el paso y se adelanta la primera medicion.
                 next != null -> Card(Modifier.fillMaxWidth()) {
@@ -2181,43 +2185,55 @@ private fun SessionContent(
                         ) { Text(strings.startMeasuring) }
                     }
                 }
-                // Nunca es un callejon sin salida: se piden mediciones a Muse Spark.
+                // Nunca es un callejon sin salida: se piden mediciones a Muse Spark o,
+                // si una pieza midio anormal o se ve danada, la da por fallada el tecnico.
                 else -> Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            if (session.results.isEmpty()) strings.noMeasurementsLive
-                            else strings.measuredNoVerdict,
+                            when {
+                                candidate?.measured == true ->
+                                    strings.measuredFault(designatorOf(session, candidate.componentId))
+                                session.replacedComponents.isNotEmpty() ->
+                                    strings.replacedNotFixed(designatorOf(session, session.replacedComponents.last()))
+                                session.results.isEmpty() -> strings.noMeasurementsLive
+                                else -> strings.measuredNoVerdict
+                            },
                             fontWeight = FontWeight.Medium,
                         )
                         note?.takeIf { it.isNotBlank() }?.let {
                             Text("Muse Spark: $it", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Button(
-                            onClick = onAskMeasurements,
-                            enabled = !planBusy,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
+                        // Lleva al veredicto y de ahi a "¿encendio?": antes, una pieza que
+                        // midio anormal sin llegar al umbral solo dejaba pedir mas fotos.
+                        candidate?.let { c ->
+                            val designator = designatorOf(session, c.componentId)
+                            Button(
+                                onClick = { engine.acceptVerdict(c.componentId); refresh() },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(if (c.measured) strings.measuredVerdict(designator)
+                                    else strings.visualVerdict(designator))
+                            }
+                        }
+                        val askContent: @Composable RowScope.() -> Unit = {
                             if (planBusy) BusyLabel(strings.askingMeasurements)
                             else Text(strings.askMeasurements)
                         }
-                        // Un capacitor seco mide normal: con el dano a la vista decide el tecnico.
-                        session.hypotheses
-                            .firstOrNull { h ->
-                                session.components.any { it.id == h.componentId && !it.visibleDamage.isNullOrBlank() }
-                            }
-                            ?.let { h ->
-                                OutlinedButton(
-                                    onClick = { engine.acceptVisibleDamage(h.componentId); refresh() },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) { Text(strings.visualVerdict(designatorOf(session, h.componentId))) }
-                            }
+                        if (candidate == null) {
+                            Button(onClick = onAskMeasurements, enabled = !planBusy,
+                                modifier = Modifier.fillMaxWidth(), content = askContent)
+                        } else {
+                            OutlinedButton(onClick = onAskMeasurements, enabled = !planBusy,
+                                modifier = Modifier.fillMaxWidth(), content = askContent)
+                        }
                         OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
                             Text(strings.startOver)
                         }
                     }
                 }
             }
-            if (next == null) addPhoto()
+            // Con una pieza que midio anormal el paso es cambiarla o medir mas, no otra foto.
+            if (next == null && candidate?.measured != true) addPhoto()
         }
 
         Stage.MEASURING -> {
@@ -2340,10 +2356,11 @@ private fun HypothesisList(session: DiagnosisSession, strings: AppStrings) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(strings.hypothesesTitle, fontWeight = FontWeight.Bold)
         session.hypotheses.forEach { h ->
-            // Descartada por una medicion: queda a la vista, sin el detalle.
+            // Descartada por una medicion o ya cambiada: queda a la vista, sin el detalle.
             if (h.ruledOut) {
                 Text(
-                    "✗ ${h.title} — ${(h.confidence * 100).toInt()}%",
+                    "✗ ${h.title} — ${(h.confidence * 100).toInt()}%" +
+                        if (h.componentId in session.replacedComponents) strings.replacedSuffix else "",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textDecoration = TextDecoration.LineThrough,
                 )

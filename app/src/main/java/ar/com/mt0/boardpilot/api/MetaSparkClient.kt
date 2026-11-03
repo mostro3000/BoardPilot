@@ -180,6 +180,7 @@ class MetaSparkClient(
         language: AppLanguage,
         boardType: BoardType = BoardType.UNKNOWN,
         extraPhotos: List<Pair<Bitmap, String>> = emptyList(),
+        replaced: List<String> = emptyList(),
     ): String = withContext(Dispatchers.IO) {
         val languageName = if (language == AppLanguage.ES) "Spanish" else "English"
         val hypothesesJson = JSONArray().apply {
@@ -210,6 +211,7 @@ class MetaSparkClient(
             candidatesJson(SparkCandidates.select(components, hypotheses.map { it.componentId }.toSet())) +
             "\nCurrent hypotheses:\n" + hypothesesJson + "\n" +
             "Measurements already done:\n" + doneJson +
+            replacedText(components, replaced) +
             extraPhotosText(extraPhotos.map { it.second })
         val body = JSONObject().apply {
             put("model", mode.modelId)
@@ -248,6 +250,21 @@ class MetaSparkClient(
     }
 
     /** Que muestra cada foto sumada, en el orden en que van despues de la primera imagen. */
+    /**
+     * Piezas ya cambiadas sin que el equipo funcione. Solo aparece despues de un
+     * "No encendio", en el pedido y no en PLAN_PROMPT: el prompt (y el smoke que
+     * lo replica) no cambia para el resto de los casos.
+     */
+    private fun replacedText(components: List<BoardComponent>, replaced: List<String>): String {
+        if (replaced.isEmpty()) return ""
+        val parts = replaced.map { id ->
+            components.firstOrNull { it.id == id }?.let { "${it.id} (${it.designator})" } ?: id
+        }
+        return "\nAlready replaced in this repair, and the unit still does not work (the photos show " +
+            "these parts before the change): " + parts.joinToString(", ") + ". Do not propose them " +
+            "again as the fault: look for what else explains the symptom or could have damaged them."
+    }
+
     private fun extraPhotosText(notes: List<String>): String =
         if (notes.isEmpty()) "" else "\nExtra photos added by the technician, in order after the first image:\n" +
             notes.mapIndexed { i, note -> "${i + 1}. " + note.ifBlank { "no description" } }.joinToString("\n")

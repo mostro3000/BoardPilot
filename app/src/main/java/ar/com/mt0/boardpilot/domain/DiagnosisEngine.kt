@@ -9,7 +9,10 @@ package ar.com.mt0.boardpilot.domain
  *   ([safeMeasurementQueue]), tambien en sesiones guardadas por versiones anteriores.
  * - Un veredicto exige evidencia de medicion real que confirme la hipotesis lider
  *   y confianza >= umbral; si la evidencia no alcanza, se pide mas evidencia. La
- *   unica excepcion la decide el tecnico: una pieza con dano a la vista.
+ *   unica excepcion la decide el tecnico: una pieza que midio anormal o con dano a
+ *   la vista ([technicianVerdicts]).
+ * - Una pieza ya cambiada sin que el equipo funcione no vuelve a liderar ni a ser
+ *   veredicto: se busca que mas explica la falla.
  * - Las confianzas son probabilidades de causas que compiten: lo que falta para
  *   sumar 1 es la chance de otra causa, que crece cuando se descartan hipotesis.
  */
@@ -101,8 +104,13 @@ class DiagnosisEngine(
     fun applyPlan(plan: SparkPlan) {
         check(session.stage == Stage.HYPOTHESES) { "El plan se aplica sobre las hipotesis" }
         val known = session.hypotheses.map { it.id }.toSet()
-        val merged = (session.hypotheses + plan.hypotheses.filterNot { it.id in known }).map { h ->
-            if (h.componentId in plan.damages) {
+        // Las fotos son de antes del cambio: lo que muestren de una pieza ya cambiada
+        // no es la placa de hoy, y volver a culparla seria reemplazarla en circulo.
+        val replaced = session.replacedComponents.toSet()
+        val damages = plan.damages.filterKeys { it !in replaced }
+        val fresh = plan.hypotheses.filterNot { it.id in known || it.componentId in replaced }
+        val merged = (session.hypotheses + fresh).map { h ->
+            if (h.componentId in damages) {
                 h.copy(confidence = maxOf(h.confidence, EVIDENCE_FLOOR), ruledOut = false)
             } else {
                 h
@@ -111,7 +119,7 @@ class DiagnosisEngine(
         session = session.copy(
             hypotheses = normalize(merged),
             components = session.components.map { component ->
-                plan.damages[component.id]?.let { component.copy(visibleDamage = it) } ?: component
+                damages[component.id]?.let { component.copy(visibleDamage = it) } ?: component
             },
         )
         addRequests(plan.requests)
@@ -125,13 +133,15 @@ class DiagnosisEngine(
     }
 
     /**
-     * Veredicto sin lectura anormal, a pedido del tecnico: la pieza tiene dano a la
-     * vista y el multimetro no siempre lo confirma (un capacitor seco mide normal).
+     * Veredicto a pedido del tecnico sin llegar al umbral: la pieza midio anormal
+     * o tiene dano a la vista que el multimetro no siempre confirma (un capacitor
+     * seco mide normal). Las otras causas siguen en juego: la verificacion
+     * ("¿encendio?") dice si alcanzaba.
      */
-    fun acceptVisibleDamage(componentId: String) {
+    fun acceptVerdict(componentId: String) {
         check(session.stage == Stage.HYPOTHESES) { "Se decide sobre las hipotesis" }
-        require(session.components.any { it.id == componentId && !it.visibleDamage.isNullOrBlank() }) {
-            "La pieza no tiene dano visible"
+        require(session.technicianVerdicts().any { it.componentId == componentId }) {
+            "La pieza no midio anormal ni tiene dano visible, o ya se cambio"
         }
         session = session.copy(stage = Stage.VERDICT, verdictComponentId = componentId)
     }
@@ -188,8 +198,8 @@ class DiagnosisEngine(
             gate = current.gate,
         )
         val remaining = safeMeasurementQueue(session.pendingRequests.drop(1), session.components, results)
-        val nextStage = decideStage(updated, remaining)
-        val leader = updated.firstOrNull()
+        val leader = leaderOf(updated)
+        val nextStage = decideStage(updated, leader, remaining)
         session = session.copy(
             hypotheses = updated,
             pendingRequests = remaining,
@@ -213,22 +223,33 @@ class DiagnosisEngine(
         } else {
             // No encendio: el veredicto no era (toda) la falla. Se descarta esa
             // hipotesis y se vuelve a las hipotesis a pedir mas evidencia, nunca
-            // a reemplazar la misma pieza y re-energizar en circulo. La cola se
-            // re-filtra: la placa cambio (pieza nueva, ya se energizo una vez).
+            // a reemplazar la misma pieza y re-energizar en circulo. La pieza
+            // queda anotada como cambiada y su hipotesis pierde peso como con una
+            // lectura normal: tachada pero con su porcentaje alto seguia primera,
+            // y ninguna otra podia llegar a veredicto. La cola se re-filtra: la
+            // placa cambio (pieza nueva, ya se energizo una vez).
             val failed = session.verdictComponentId
+            val failedIds = session.hypotheses.filter { it.componentId == failed }.map { it.id }.toSet()
             session.copy(
                 stage = Stage.HYPOTHESES,
                 verdictComponentId = null,
                 safetyConfirmedForCurrent = false,
-                hypotheses = session.hypotheses.map { h ->
-                    if (h.componentId == failed) {
-                        h.copy(confirmedByMeasurement = false, ruledOut = true)
+                replacedComponents = (session.replacedComponents + listOfNotNull(failed)).distinct(),
+                hypotheses = normalize(session.hypotheses.map { h ->
+                    if (h.id in failedIds) {
+                        h.copy(
+                            confidence = h.confidence * NORMAL_FACTOR,
+                            confirmedByMeasurement = false,
+                            ruledOut = true,
+                        )
                     } else {
                         h
                     }
-                },
+                }),
+                // Lo pendiente sobre la pieza vieja ya no dice nada de la placa de hoy.
                 pendingRequests = safeMeasurementQueue(
-                    session.pendingRequests, session.components, session.results,
+                    session.pendingRequests.filterNot { it.targetHypothesisId in failedIds },
+                    session.components, session.results,
                 ),
             )
         }
@@ -249,11 +270,19 @@ class DiagnosisEngine(
         )
     }
 
+    /**
+     * La que puede llegar a veredicto: la mas probable que no quedo descartada ni
+     * es una pieza ya cambiada.
+     */
+    private fun leaderOf(hypotheses: List<Hypothesis>): Hypothesis? =
+        hypotheses.firstOrNull { !it.ruledOut && it.componentId !in session.replacedComponents }
+
     private fun decideStage(
         hypotheses: List<Hypothesis>,
+        leader: Hypothesis?,
         remaining: List<MeasurementRequest>,
     ): Stage {
-        val leader = hypotheses.firstOrNull() ?: return Stage.HYPOTHESES
+        leader ?: return if (remaining.isNotEmpty()) Stage.MEASURING else Stage.HYPOTHESES
         // Entre las hipotesis: "otra causa" no compite con una lectura anormal.
         val share = leader.confidence / hypotheses.sumOf { it.confidence }.coerceAtLeast(1e-9)
         val proven = leader.confirmedByMeasurement && share >= verdictThreshold

@@ -161,8 +161,45 @@ data class DiagnosisSession(
     val replacement: String? = null,
     /** Fotos que sumo el tecnico al no aparecer la falla: que muestra cada una (puede faltar). */
     val extraPhotos: List<String> = emptyList(),
+    /**
+     * Piezas que ya se cambiaron en esta reparacion sin que el equipo vuelva a
+     * funcionar (ids, en orden). No vuelven a ser veredicto y las fotos las
+     * muestran como estaban antes del cambio.
+     */
+    val replacedComponents: List<String> = emptyList(),
 ) {
     val currentRequest: MeasurementRequest? get() = pendingRequests.firstOrNull()
+}
+
+/**
+ * Pieza que el tecnico puede dar por fallada aunque el motor no llegue al umbral
+ * del veredicto: una medicion la confirmo ([measured]) o tiene dano a la vista
+ * (un capacitor seco mide normal).
+ */
+data class TechnicianVerdict(val componentId: String, val measured: Boolean)
+
+/**
+ * Las piezas con evidencia propia, de la hipotesis mas probable a la menos. Sin
+ * esto, una pieza que midio anormal pero no llega al umbral (porque otra causa que
+ * el multimetro no puede medir sigue en juego) dejaba la reparacion sin salida:
+ * ni veredicto ni "¿encendio?". Una pieza ya cambiada no se vuelve a ofrecer.
+ */
+fun DiagnosisSession.technicianVerdicts(): List<TechnicianVerdict> {
+    val damaged = components.filter { !it.visibleDamage.isNullOrBlank() }.map { it.id }.toSet()
+    return hypotheses
+        .map { it.componentId }
+        .distinct()
+        .filterNot { it in replacedComponents }
+        .mapNotNull { id ->
+            val measured = hypotheses.any {
+                it.componentId == id && it.confirmedByMeasurement && !it.ruledOut
+            }
+            when {
+                measured -> TechnicianVerdict(id, measured = true)
+                id in damaged -> TechnicianVerdict(id, measured = false)
+                else -> null
+            }
+        }
 }
 
 /** Fotos que se pueden sumar a una reparacion, ademas de la principal. */

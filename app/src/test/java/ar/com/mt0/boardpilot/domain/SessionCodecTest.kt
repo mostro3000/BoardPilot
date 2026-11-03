@@ -117,9 +117,23 @@ class SessionCodecTest {
         val conVaciaAlFinal = session.copy(extraPhotos = listOf("de cerca", ""))
         assertEquals(conVaciaAlFinal, SessionCodec.decode(SessionCodec.encode(conVaciaAlFinal)))
         val sinFotos = session.copy(extraPhotos = emptyList())
-        // Formato anterior: el texto termina en los resultados.
-        val antes = SessionCodec.encode(sinFotos).lines().dropLast(1).joinToString("\n")
+        // Formato anterior: el texto termina en los resultados (sin fotos ni piezas cambiadas).
+        val antes = SessionCodec.encode(sinFotos).lines().dropLast(2).joinToString("\n")
         assertEquals(sinFotos, SessionCodec.decode(antes))
+    }
+
+    @Test
+    fun `piezas ya cambiadas y sesiones de antes de anotarlas`() {
+        val session = GoldenCaseSmps.newSession(AppLanguage.ES).copy(
+            extraPhotos = listOf("de cerca"),
+            replacedComponents = listOf("q3", "dmg_1"),
+            stage = Stage.HYPOTHESES,
+        )
+        assertEquals(session, SessionCodec.decode(SessionCodec.encode(session)))
+        // Guardada por la 0.1.2: termina en las fotos sumadas.
+        val sinCambiadas = session.copy(replacedComponents = emptyList())
+        val antes = SessionCodec.encode(sinCambiadas).lines().dropLast(1).joinToString("\n")
+        assertEquals(sinCambiadas, SessionCodec.decode(antes))
     }
 
     @Test

@@ -82,6 +82,12 @@ interface AppStrings {
     val addPhotoSend: String
     fun addPhotoLimit(max: Int): String
     fun visualVerdict(designator: String): String
+    /** Una pieza midio anormal sin llegar al umbral: el tecnico puede darla por fallada. */
+    fun measuredFault(designator: String): String
+    fun measuredVerdict(designator: String): String
+    /** Despues de un "No encendio": la pieza ya se cambio y se sigue buscando. */
+    fun replacedNotFixed(designator: String): String
+    val replacedSuffix: String
     val askMeasurements: String
     val askingMeasurements: String
     val askFailed: String
@@ -294,6 +300,10 @@ object EsStrings : AppStrings {
     override val addPhotoSend = "Analizar con esta foto"
     override fun addPhotoLimit(max: Int) = "Ya sumaste las $max fotos que admite cada reparación."
     override fun visualVerdict(designator: String) = "Dar por fallada la pieza $designator: el daño se ve"
+    override fun measuredFault(designator: String) = "$designator midió anormal, pero las otras causas todavía no se descartaron. Podés darla por fallada, reemplazarla y verificar si el equipo funciona, o pedir más mediciones."
+    override fun measuredVerdict(designator: String) = "Dar por fallada la pieza $designator: midió anormal"
+    override fun replacedNotFixed(designator: String) = "Ya se cambió $designator y el equipo sigue sin funcionar. Pedí las siguientes mediciones: Muse Spark busca qué más explica la falla o qué dañó esa pieza."
+    override val replacedSuffix = " (ya cambiada)"
     override val fixLabel = "Si se confirma"
     override val measurementTitle = "Medición"
     override val normalLabel = "Normal"
@@ -563,6 +573,10 @@ object EnStrings : AppStrings {
     override val addPhotoSend = "Analyze with this photo"
     override fun addPhotoLimit(max: Int) = "You already added the $max photos each repair allows."
     override fun visualVerdict(designator: String) = "Mark $designator as failed: the damage is visible"
+    override fun measuredFault(designator: String) = "$designator measured abnormal, but the other causes are not ruled out yet. You can mark it as failed, replace it and check whether the unit works, or ask for more measurements."
+    override fun measuredVerdict(designator: String) = "Mark $designator as failed: it measured abnormal"
+    override fun replacedNotFixed(designator: String) = "$designator was already replaced and the unit still does not work. Ask for the next measurements: Muse Spark looks for what else explains the fault or what damaged that part."
+    override val replacedSuffix = " (already replaced)"
     override val fixLabel = "If confirmed"
     override val measurementTitle = "Measurement"
     override val normalLabel = "Normal"

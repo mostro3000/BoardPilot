@@ -393,9 +393,82 @@ class DiagnosisEngineTest {
         val engine = incrementalEngine(listOf(coldA), parts)
         engine.answer(MeasurementOutcome.NORMAL)
         assertEquals(Stage.HYPOTHESES, engine.session.stage)
-        engine.acceptVisibleDamage("c1")
+        assertEquals(listOf(TechnicianVerdict("c1", measured = false)), engine.session.technicianVerdicts())
+        engine.acceptVerdict("c1")
         assertEquals(Stage.VERDICT, engine.session.stage)
         assertEquals("c1", engine.session.verdictComponentId)
+    }
+
+    @Test
+    fun `una pieza que midio anormal sin llegar al umbral la da por fallada el tecnico y se pregunta si encendio`() {
+        // El caso de la fuente de PC: inductor confirmado 48 %, capacitores secos 36 %
+        // (el multimetro no mide ESR), supervisor 12 %. Nunca llega al 80 %.
+        val engine = DiagnosisEngine(DiagnosisSession(BoardType.SMPS, "La PC se congela"))
+        engine.loadMapping(safetyParts)
+        engine.loadHypotheses(
+            listOf(
+                Hypothesis("h1", "Inductor abierto", "c1", 0.30, "", fix = "Reemplazar el inductor 6R8"),
+                Hypothesis("h2", "Capacitores secos", "c2", 0.45, ""),
+                Hypothesis("h3", "Supervisor", "c3", 0.15, ""),
+            ),
+            listOf(coldA),
+        )
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        val h1 = engine.session.hypotheses.single { it.id == "h1" }
+        assertTrue(h1.confirmedByMeasurement)
+        // Sin umbral no hay veredicto automatico...
+        assertEquals(Stage.HYPOTHESES, engine.session.stage)
+        assertEquals(null, engine.session.verdictComponentId)
+        // ...pero la pieza que midio anormal se ofrece al tecnico, primero.
+        assertEquals(TechnicianVerdict("c1", measured = true), engine.session.technicianVerdicts().first())
+        engine.acceptVerdict("c1")
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        assertEquals("c1", engine.session.verdictComponentId)
+        engine.markRepaired("Reemplazar el inductor 6R8")
+        // Y despues de cambiarla, la app pregunta si encendio.
+        assertEquals(Stage.REPAIR, engine.session.stage)
+    }
+
+    @Test
+    fun `si no enciende la pieza cambiada deja de liderar y otra lectura anormal llega al veredicto`() {
+        val engine = incrementalEngine(listOf(coldA))
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        assertEquals("c1", engine.session.verdictComponentId)
+        engine.markRepaired("C1")
+        engine.markVerified(powersOn = false)
+        assertEquals(listOf("c1"), engine.session.replacedComponents)
+        val cambiada = engine.session.hypotheses.single { it.id == "h1" }
+        assertTrue(cambiada.ruledOut)
+        // Pierde peso como con una lectura normal: tachada con su 86 % seguia primera.
+        assertTrue(cambiada.confidence < 0.2)
+        assertTrue(engine.session.technicianVerdicts().none { it.componentId == "c1" })
+        engine.applyPlan(SparkPlan(requests = listOf(
+            measurement("m2", MeasurementKind.DIODE, "h2"),
+            measurement("m3", MeasurementKind.CONTINUITY, "h3"),
+        )))
+        engine.answer(MeasurementOutcome.ABNORMAL)
+        engine.answer(MeasurementOutcome.NORMAL)
+        assertEquals(Stage.VERDICT, engine.session.stage)
+        assertEquals("c2", engine.session.verdictComponentId)
+    }
+
+    @Test
+    fun `una pieza ya cambiada no se vuelve a ofrecer aunque tenga dano a la vista`() {
+        val parts = safetyParts.map { if (it.id == "c1") it.copy(visibleDamage = "Abombado") else it }
+        val engine = incrementalEngine(listOf(coldA), parts)
+        engine.answer(MeasurementOutcome.NORMAL)
+        engine.acceptVerdict("c1")
+        engine.markRepaired("C1")
+        engine.markVerified(powersOn = false)
+        assertTrue(engine.session.technicianVerdicts().isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { engine.acceptVerdict("c1") }
+        // El plan mira las fotos de antes del cambio: no revive ni suma causas sobre esa pieza.
+        engine.applyPlan(SparkPlan(
+            damages = mapOf("c1" to "Abombado"),
+            hypotheses = listOf(Hypothesis("h9", "Otra vez C1", "c1", 0.5, "")),
+        ))
+        assertTrue(engine.session.hypotheses.single { it.id == "h1" }.ruledOut)
+        assertTrue(engine.session.hypotheses.none { it.id == "h9" })
     }
 
     @Test
@@ -416,10 +489,11 @@ class DiagnosisEngineTest {
     }
 
     @Test
-    fun `sin dano visible no hay veredicto a pedido`() {
+    fun `sin dano visible ni lectura anormal no hay veredicto a pedido`() {
         val engine = incrementalEngine(listOf(coldA))
         engine.answer(MeasurementOutcome.NORMAL)
-        assertThrows(IllegalArgumentException::class.java) { engine.acceptVisibleDamage("c1") }
+        assertTrue(engine.session.technicianVerdicts().isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { engine.acceptVerdict("c1") }
     }
 
     @Test
